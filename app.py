@@ -653,6 +653,14 @@ if st.sidebar.button("Shutdown server", type="primary", key="shutdown_btn_single
     st.sidebar.warning("Server shutting down…")
     os._exit(0)
 
+# SBAC part mapping toggle
+swap_parts = st.sidebar.checkbox(
+    "SBAC Part mapping: Part 1=Math, Part 2=ELA (default is Part 1=ELA, Part 2=Math)",
+    value=False,
+    key="swap_parts_single"
+)
+
+
 # Scores CSV required
 if not scores_up:
     st.title(f"{school_name} — {subject} CAASPP Test Scores")
