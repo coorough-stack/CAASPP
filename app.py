@@ -9,37 +9,6 @@ import matplotlib.pyplot as plt
 from matplotlib.patches import Rectangle
 from matplotlib.backends.backend_pdf import PdfPages
 
-# ---- Design constants ----
-ISR_COLORS = {1: "#F35031", 2: "#F2C94F", 3: "#5AC923", 4: "#00B4EB"}
-BAND_ALPHA = 0.18
-TREND_LINE = "#3A3A3A"
-POINT_EDGE = "black"
-
-# Thresholds (grades 3–8)
-MATH_THRESHOLDS = {
-    3: (2381, 2436, 2501),
-    4: (2411, 2485, 2549),
-    5: (2455, 2528, 2579),
-    6: (2473, 2552, 2610),
-    7: (2484, 2567, 2635),
-    8: (2504, 2586, 2653),
-}
-ELA_THRESHOLDS = {
-    3: (2367, 2432, 2490),
-    4: (2416, 2473, 2533),
-    5: (2442, 2502, 2582),
-    6: (2457, 2531, 2618),
-    7: (2479, 2552, 2649),
-    8: (2487, 2567, 2668),
-}
-THRESHOLDS = {"Math": MATH_THRESHOLDS, "ELA": ELA_THRESHOLDS}
-
-SCORE_COLS = [f"Score_{g*10}" for g in range(3, 9)]  # Score_30..Score_80
-STUDENT_ID_COL = "Student ID"
-STUDENT_NAME_COL = "Student"
-CURRENT_GRADE_COL = "Current Grade"
-
-
 # ---- Flexible reader for raw CAASPP exports ----
 def _assemble_student_name(df: pd.DataFrame) -> pd.Series:
     if "Student" in df.columns:
@@ -143,6 +112,36 @@ def normalize_current_grade(df: pd.DataFrame, col: str = "Current Grade") -> pd.
     out = pd.Series(num, index=df.index).round()
     df[col] = pd.to_numeric(out, errors="coerce").clip(lower=3, upper=8).astype("Int64")
     return df
+
+# ---- Design constants ----
+ISR_COLORS = {1: "#F35031", 2: "#F2C94F", 3: "#5AC923", 4: "#00B4EB"}
+BAND_ALPHA = 0.18
+TREND_LINE = "#3A3A3A"
+POINT_EDGE = "black"
+
+# Thresholds (grades 3–8)
+MATH_THRESHOLDS = {
+    3: (2381, 2436, 2501),
+    4: (2411, 2485, 2549),
+    5: (2455, 2528, 2579),
+    6: (2473, 2552, 2610),
+    7: (2484, 2567, 2635),
+    8: (2504, 2586, 2653),
+}
+ELA_THRESHOLDS = {
+    3: (2367, 2432, 2490),
+    4: (2416, 2473, 2533),
+    5: (2442, 2502, 2582),
+    6: (2457, 2531, 2618),
+    7: (2479, 2552, 2649),
+    8: (2487, 2567, 2668),
+}
+THRESHOLDS = {"Math": MATH_THRESHOLDS, "ELA": ELA_THRESHOLDS}
+
+SCORE_COLS = [f"Score_{g*10}" for g in range(3, 9)]  # Score_30..Score_80
+STUDENT_ID_COL = "Student ID"
+STUDENT_NAME_COL = "Student"
+CURRENT_GRADE_COL = "Current Grade"
 
 # ---- Utilities ----
 def ordinal(n: int) -> str:
