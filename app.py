@@ -269,9 +269,12 @@ def ensure_name_column(df: pd.DataFrame) -> pd.DataFrame:
 
 # ---- Augmentation (percentile, latest, etc.) ----
 def attach_latest_and_percentiles(df: pd.DataFrame, subject: str) -> pd.DataFrame:
+    """Add LatestScore, LatestGradeTested, SchoolPercentile(+ordinal),
+    and compute LatestLevel / PtsToNextLevel using the GRADE TESTED."""
     df = df.copy()
     df = ensure_name_column(df)
 
+    # latest score + the grade it was tested in
     lat_scores, lat_grades = [], []
     for _, r in df.iterrows():
         s, g = _latest_score_and_grade(r)
@@ -283,24 +286,32 @@ def attach_latest_and_percentiles(df: pd.DataFrame, subject: str) -> pd.DataFram
     if CURRENT_GRADE_COL not in df.columns:
         df[CURRENT_GRADE_COL] = df["LatestGradeTested"]
 
-    # Percentile within current grade
+    # Percentile within CURRENT grade (for communication)
     df["SchoolPercentile"] = np.nan
     for g, sub in df.groupby(df[CURRENT_GRADE_COL]):
         if sub["LatestScore"].notna().sum() == 0:
             continue
         pct = sub["LatestScore"].rank(method="average", pct=True)
-        df.loc[sub.index, "SchoolPercentile"] = (pct * 100).round(0).astype(int)
+        df.loc[sub.index, "SchoolPercentile"] = (pct * 100).round(0).astype("Int64")
 
     df["SchoolPercentileOrdinal"] = df["SchoolPercentile"].apply(
         lambda x: f"{ordinal(int(x))} percentile" if pd.notna(x) else ""
     )
 
-   df["LatestLevel"] = [
-        score_to_level(s, subject, int(g) if pd.notna(g) else int(cg) if pd.notna(cg) else 8)
+    # Use grade tested first; fall back to current grade; else 8
+    def _grade_for_level(g_tested, g_current):
+        if pd.notna(g_tested):
+            return int(g_tested)
+        if pd.notna(g_current):
+            return int(g_current)
+        return 8
+
+    df["LatestLevel"] = [
+        score_to_level(s, subject, _grade_for_level(g, cg))
         for s, g, cg in zip(df["LatestScore"], df["LatestGradeTested"], df[CURRENT_GRADE_COL])
     ]
     df["PtsToNextLevel"] = [
-        points_to_next_level(s, subject, int(g) if pd.notna(g) else int(cg) if pd.notna(cg) else 8)
+        points_to_next_level(s, subject, _grade_for_level(g, cg))
         for s, g, cg in zip(df["LatestScore"], df["LatestGradeTested"], df[CURRENT_GRADE_COL])
     ]
     return df
