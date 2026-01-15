@@ -295,13 +295,13 @@ def attach_latest_and_percentiles(df: pd.DataFrame, subject: str) -> pd.DataFram
         lambda x: f"{ordinal(int(x))} percentile" if pd.notna(x) else ""
     )
 
-    df["LatestLevel"] = [
-        score_to_level(s, subject, int(cg) if pd.notna(cg) else (g if g else 8))
-        for s, cg, g in zip(df["LatestScore"], df[CURRENT_GRADE_COL], df["LatestGradeTested"])
+   df["LatestLevel"] = [
+        score_to_level(s, subject, int(g) if pd.notna(g) else int(cg) if pd.notna(cg) else 8)
+        for s, g, cg in zip(df["LatestScore"], df["LatestGradeTested"], df[CURRENT_GRADE_COL])
     ]
     df["PtsToNextLevel"] = [
-        points_to_next_level(s, subject, int(cg) if pd.notna(cg) else (g if g else 8))
-        for s, cg, g in zip(df["LatestScore"], df[CURRENT_GRADE_COL], df["LatestGradeTested"])
+        points_to_next_level(s, subject, int(g) if pd.notna(g) else int(cg) if pd.notna(cg) else 8)
+        for s, g, cg in zip(df["LatestScore"], df["LatestGradeTested"], df[CURRENT_GRADE_COL])
     ]
     return df
 
