@@ -169,6 +169,33 @@ def ensure_current_grade(df: pd.DataFrame) -> pd.DataFrame:
     df["Current Grade"] = cg
     return df
 
+def detect_section_columns(df: pd.DataFrame) -> dict:
+    """Detects Student ID and Section columns in a sections-enrollment CSV."""
+    def _find(possibles):
+        # exact
+        for p in possibles:
+            for c in df.columns:
+                if c.strip().lower() == p:
+                    return c
+        # contains
+        for p in possibles:
+            for c in df.columns:
+                if p in c.strip().lower():
+                    return c
+        return None
+
+    sid = _find(["student id","studentid","id","stu#","stu #","local id","state id"])
+    section = _find(["section","section id","section code","course section","period","class","class id"])
+    return {"student_id": sid, "section": section}
+
+
+def apply_section_filter(_df: pd.DataFrame, selected_sections: list) -> pd.DataFrame:
+    """Keep rows where student's SectionsList intersects selected_sections."""
+    if not selected_sections or "SectionsList" not in _df.columns:
+        return _df
+    sel = set(map(str, selected_sections))
+    return _df[_df["SectionsList"].apply(lambda lst: bool(set(map(str, (lst or []))).intersection(sel)))]
+
 # ---- Design constants ----
 ISR_COLORS = {1: "#F35031", 2: "#F2C94F", 3: "#5AC923", 4: "#00B4EB"}
 BAND_ALPHA = 0.18
@@ -744,6 +771,65 @@ if roster_up is not None:
     else:
         st.info("Select Teacher, Class, and Student ID columns to link the roster.")
 
+# ---------- Optional: Sections enrollment (Student -> Section) ----------
+st.subheader("Optional: Sections enrollment (Student → Section)")
+sections_up = st.file_uploader("Upload sections CSV (each row = a student in a section)", type=["csv"], key="sections_csv_v1")
+
+# Defaults (columns will appear later even if no file)
+selected_sections = []
+
+if sections_up is not None:
+    try:
+        sections_df = pd.read_csv(sections_up, dtype={"Student ID":"string"})
+    except Exception:
+        sections_up.seek(0)
+        sections_df = pd.read_csv(sections_up, dtype={"Student ID":"string"}, encoding="latin-1")
+
+    sc = detect_section_columns(sections_df)
+    sec_cols = [None] + sections_df.columns.tolist()
+    def _idx(v):
+        try: return sec_cols.index(v)
+        except Exception: return 0
+
+    s1, s2 = st.columns(2)
+    with s1:
+        sid_sections = st.selectbox("Student ID column (sections)", options=sec_cols, index=_idx(sc.get("student_id")), key="sections_sid_col_v1")
+    with s2:
+        section_col  = st.selectbox("Section column", options=sec_cols, index=_idx(sc.get("section")), key="sections_section_col_v1")
+
+    if sid_sections and section_col:
+        # Normalize IDs and clean section codes as strings
+        sec = sections_df[[sid_sections, section_col]].rename(columns={sid_sections:"__sid", section_col:"__section"})
+        sec["__sid"] = sid_norm_series(sec["__sid"])
+        sec["__section"] = sec["__section"].astype(str).str.strip()
+
+        # Aggregate to a per-student list of sections
+        agg = (sec[sec["__section"]!=""]
+               .groupby("__sid")["__section"]
+               .apply(lambda s: sorted(set(s.tolist())))
+               .reset_index()
+               .rename(columns={"__section":"__sections"}))
+
+        # Attach to df (one row per student), storing both list and a printable string
+        left_ids = pd.DataFrame({"__sid": sid_norm_series(df[sid_col])})
+        merged_sections = left_ids.merge(agg, on="__sid", how="left")
+        df["SectionsList"] = merged_sections["__sections"]
+        df["Sections"] = merged_sections["__sections"].apply(lambda x: ", ".join(x) if isinstance(x, list) else "")
+
+        # Sidebar multiselect for section filter (populate from attached data)
+        all_sections = sorted({sec for lst in df["SectionsList"].dropna() for sec in lst})
+        selected_sections = st.sidebar.multiselect("Filter by Section", options=all_sections, default=[], key="filter_sections_v1")
+
+        # Diagnostics
+        matched = df["Sections"].ne("").sum()
+        st.success(f"Sections attached to {matched}/{len(df)} students.")
+        with st.expander("Preview sections (first 20)"):
+            name_col = STUDENT_NAME_COL if STUDENT_NAME_COL in df.columns else (df.columns[0] if len(df.columns)>0 else "Student")
+            show = [c for c in [sid_col, name_col, "Sections"] if c in df.columns or c in ["Sections"]]
+            st.dataframe(df.loc[:, show].head(20))
+    else:
+        st.info("Select the Student ID and Section columns to link sections.")
+
 # Augment for subject
 # Augment + normalize grades, then re-augment so percentiles/levels use clean grades
 df = attach_latest_and_percentiles(df, subject)   # creates LatestGradeTested, etc.
@@ -753,6 +839,11 @@ df = attach_latest_and_percentiles(df, subject)   # recompute percentiles/levels
 
 # Filters / sort
 view = filter_by_grade_and_level(df, grades_filter, levels_filter, hide_lvl4)
+# NEW: filter by selected sections (if any)
+view = apply_section_filter(view, selected_sections)
+view = sort_df(view, sort_choice)
+if pick_mode == "First N only":
+    view = view.head(int(first_n))
 view = sort_df(view, sort_choice)
 if pick_mode == "First N only":
     view = view.head(int(first_n))
