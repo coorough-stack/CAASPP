@@ -9,6 +9,93 @@ import matplotlib.pyplot as plt
 from matplotlib.patches import Rectangle
 from matplotlib.backends.backend_pdf import PdfPages
 
+
+# ---- Flexible reader for raw CAASPP exports ----
+def _assemble_student_name(df: pd.DataFrame) -> pd.Series:
+    if "Student" in df.columns:
+        return df["Student"].astype(str)
+    if {"First Name", "Last Name"}.issubset(df.columns):
+        return (df["First Name"].astype(str).str.strip() + " " +
+                df["Last Name"].astype(str).str.strip()).str.strip()
+    if "Name" in df.columns:  # try "Last, First"
+        parts = df["Name"].astype(str).str.split(",", n=1, expand=True)
+        if parts.shape[1] == 2:
+            return (parts[1].str.strip() + " " + parts[0].str.strip()).str.strip()
+        return df["Name"].astype(str)
+    # fallback
+    return pd.Series(["Student"] * len(df), index=df.index)
+
+def read_scores_flex(uploaded_file, subject: str, swap_sbac_parts: bool = False) -> pd.DataFrame:
+    """
+    Accepts either:
+      A) already-normalized scores (Score_30..Score_80), or
+      B) raw CAASPP export like the one you posted (with TESTID/Part/Grade1/S/S)
+    Returns a DataFrame with: Student ID, Student, Current Grade, Score_30..Score_80
+    """
+    # try utf-8 then latin-1
+    try:
+        raw = pd.read_csv(uploaded_file, encoding="utf-8", engine="python")
+    except Exception:
+        uploaded_file.seek(0)
+        raw = pd.read_csv(uploaded_file, encoding="latin-1", engine="python")
+
+    raw.columns = [c.strip().replace("\ufeff", "") for c in raw.columns]
+
+    # Case A: already normalized (has Score_* columns) -> just ensure name & current grade
+    if any(str(c).startswith("Score_") for c in raw.columns):
+        if "Student" not in raw.columns:
+            raw["Student"] = _assemble_student_name(raw)
+        if "Current Grade" not in raw.columns and "Grade" in raw.columns:
+            raw["Current Grade"] = raw["Grade"]
+        return raw
+
+    # Case B: raw CAASPP export (TESTID/Part/Grade1/S/S)
+    needed = {"TESTID", "Part", "Grade1", "S/S"}
+    if not needed.issubset(set(raw.columns)):
+        # If it’s some other layout, leave as-is (app will show column prompts)
+        return raw
+
+    # Keep SBAC only (drop ELPAC/CAST/CAA/etc.)
+    sbac = raw[raw["TESTID"].astype(str).str.upper() == "SBAC"].copy()
+    sbac = sbac[pd.notna(sbac["S/S"]) & pd.notna(sbac["Grade1"])]
+
+    # Subject selection via Part mapping (default: Part 1 = ELA, Part 2 = Math)
+    # If your district uses the opposite, tick the swap box (see sidebar toggle below).
+    part_math, part_ela = (1.0, 2.0) if swap_sbac_parts else (2.0, 1.0)
+    target_part = part_math if subject == "Math" else part_ela
+    sbac = sbac[sbac["Part"] == target_part].copy()
+
+    # Keep only grades 30..80 step 10 and take the latest test per student/grade
+    sbac["Grade1"] = sbac["Grade1"].astype(float)
+    sbac = sbac[sbac["Grade1"].isin([30, 40, 50, 60, 70, 80])]
+    if "Date Taken" in sbac.columns:
+        sbac["_date"] = pd.to_datetime(sbac["Date Taken"], errors="coerce")
+        sbac = sbac.sort_values("_date").drop_duplicates(["Student ID", "Grade1"], keep="last")
+
+    # Pivot to wide: Student ID × Score_{Grade1} = S/S
+    sbac["ScoreCol"] = "Score_" + sbac["Grade1"].astype(int).astype(str)
+    wide = sbac.pivot_table(index=["Student ID"], columns="ScoreCol", values="S/S", aggfunc="first").reset_index()
+
+    # Attach Student and (if present) Current Grade
+    raw["Student"] = _assemble_student_name(raw)
+    if "Current Grade" not in raw.columns and "Grade" in raw.columns:
+        raw["Current Grade"] = raw["Grade"]
+
+    id_cols = ["Student ID", "Student"] + (["Current Grade"] if "Current Grade" in raw.columns else [])
+    base = raw.drop_duplicates("Student ID")[id_cols]
+    out = base.merge(wide, on="Student ID", how="right")
+
+    # Ensure all expected Score_* exist
+    for g in (30, 40, 50, 60, 70, 80):
+        col = f"Score_{g}"
+        if col not in out.columns:
+            out[col] = np.nan
+
+    # Make sure Student ID is string for safer joins later
+    out["Student ID"] = out["Student ID"].astype("string")
+    return out
+
+
 # ---- Design constants ----
 ISR_COLORS = {1: "#F35031", 2: "#F2C94F", 3: "#5AC923", 4: "#00B4EB"}
 BAND_ALPHA = 0.18
