@@ -113,6 +113,62 @@ def normalize_current_grade(df: pd.DataFrame, col: str = "Current Grade") -> pd.
     df[col] = pd.to_numeric(out, errors="coerce").clip(lower=3, upper=8).astype("Int64")
     return df
 
+def _parse_grade_any(x):
+    """Return an integer 3..8 if possible from values like '6', '6th', 'Grade 7', 30/40/… etc."""
+    if pd.isna(x):
+        return pd.NA
+    s = str(x).strip()
+    # pull first number
+    import re
+    m = re.search(r"\d+", s)
+    if not m:
+        return pd.NA
+    n = pd.to_numeric(m.group(), errors="coerce")
+    if pd.isna(n):
+        return pd.NA
+    # Grade1-style 30/40/... -> 3..8
+    if 30 <= n <= 80:
+        n = int(round(n / 10.0))
+    return int(n) if 3 <= int(n) <= 8 else pd.NA
+
+def ensure_current_grade(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Guarantees df['Current Grade'] exists as Int64 with values 3..8 by deriving from:
+    - Current Grade (any format), or
+    - Grade / Grade Level / Grade1 (30/40/... ok), or
+    - LatestGradeTested, or
+    - The latest non-null Score_* column present.
+    """
+    df = df.copy()
+
+    # 1) start with existing Current Grade if present
+    cg = None
+    if "Current Grade" in df.columns:
+        cg = df["Current Grade"].apply(_parse_grade_any)
+
+    # 2) fallbacks from common export columns
+    for col in ["Grade", "Grade Level", "Grade1"]:
+        if cg is None or cg.isna().all():
+            if col in df.columns:
+                cg = pd.Series([_parse_grade_any(v) for v in df[col]], index=df.index)
+
+    # 3) fallback from LatestGradeTested (already 3..8 usually)
+    if cg is None or cg.isna().all():
+        if "LatestGradeTested" in df.columns:
+            cg = df["LatestGradeTested"].apply(_parse_grade_any)
+
+    # 4) last resort: infer from which Score_* exists (take max present → “current”)
+    if cg is None or cg.isna().all():
+        def _infer_from_scores(row):
+            present = [g for g in range(3,9) if pd.notna(row.get(f"Score_{g*10}", pd.NA))]
+            return pd.NA if not present else max(present)
+        cg = df.apply(_infer_from_scores, axis=1)
+
+    # finalize
+    cg = pd.to_numeric(cg, errors="coerce").astype("Int64")
+    df["Current Grade"] = cg
+    return df
+
 # ---- Design constants ----
 ISR_COLORS = {1: "#F35031", 2: "#F2C94F", 3: "#5AC923", 4: "#00B4EB"}
 BAND_ALPHA = 0.18
@@ -603,14 +659,16 @@ if not scores_up:
     st.info("Upload your Student Scores CSV to begin.")
     st.stop()
 
-# Read scores
-try:
-    df = pd.read_csv(scores_up, dtype={STUDENT_ID_COL: "string"})
-except Exception:
-    scores_up.seek(0)
-    df = pd.read_csv(scores_up, dtype={STUDENT_ID_COL: "string"}, encoding="latin-1")
-
+# Read scores (flexible) + ensure clean Current Grade
+df = read_scores_flex(scores_up, subject, swap_sbac_parts=swap_parts)
 df["_file_order"] = np.arange(len(df))
+
+# First pass to compute LatestGradeTested/etc.
+df = attach_latest_and_percentiles(df, subject)
+
+# Coerce/derive Current Grade to 3..8, then recompute levels/percentiles using the clean grade
+df = ensure_current_grade(df)
+df = attach_latest_and_percentiles(df, subject)
 
 # Detect Student ID column (scores)
 sid_col = detect_sid_column(df)
