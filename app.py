@@ -948,6 +948,9 @@ def build_pdf_bytes(rows: pd.DataFrame, subject: str, title: str) -> bytes:
             ax_trend.set_position([pt.x0 + pad_x, pt.y0, pt.width - 2*pad_x, pt.height])
             ax_trend.tick_params(axis="y", pad=2)
 
+            # ↓ Move the “Grade Tested” label DOWN (larger = farther below the axis)
+            ax_trend.set_xlabel("Grade Tested", labelpad=12)   # try 10–16 to taste
+
             # Level key
             draw_level_key(ax_key, subject, tested if tested else (cg or 6))
             posk = ax_key.get_position()
