@@ -9,6 +9,39 @@ import matplotlib.pyplot as plt
 from matplotlib.patches import Rectangle
 from matplotlib.backends.backend_pdf import PdfPages
 
+from textwrap import wrap
+
+def draw_bottom_text(ax, blurb: str, yby_lines: list[str], *, fontsize=11):
+    """Render 'What this means' and 'Year-by-Year' with robust spacing."""
+    ax.axis('off')
+    LINE = 0.052    # vertical step in axes coords (tweak 0.048–0.056 to taste)
+    GAP  = 0.018    # extra gap between blocks
+    y = 0.96
+
+    # Heading 1
+    ax.text(0.0, y, "What this means", transform=ax.transAxes,
+            ha='left', va='top', fontsize=fontsize, fontweight='bold')
+    y -= LINE
+
+    # Wrapped blurb
+    for t in wrap(blurb or "", width=90):
+        ax.text(0.0, y, t, transform=ax.transAxes,
+                ha='left', va='top', fontsize=fontsize)
+        y -= LINE
+
+    y -= GAP
+
+    # Heading 2
+    ax.text(0.0, y, "Year-by-Year Performance", transform=ax.transAxes,
+            ha='left', va='top', fontsize=fontsize, fontweight='bold')
+    y -= LINE
+
+    # Lines
+    for t in (yby_lines or []):
+        ax.text(0.0, y, t, transform=ax.transAxes,
+                ha='left', va='top', fontsize=fontsize)
+        y -= LINE
+
 # ---- Flexible reader for raw CAASPP exports ----
 def _assemble_student_name(df: pd.DataFrame) -> pd.Series:
     if "Student" in df.columns:
@@ -925,38 +958,49 @@ def build_pdf_bytes(rows: pd.DataFrame, subject: str, title: str) -> bytes:
             pos = ax_growth.get_position()
             ax_growth.set_position([pos.x0 + 0.012, pos.y0 + 0.012, pos.width - 2*0.012, pos.height])
 
-            # Body text (wrapped) with bold section headers
-            from textwrap import fill
-            blurb = what_this_means(level= lvl, subject=subject, percentile_text= pct_text or "—")
+            # Body text (safe, line-by-line) with bold section headers
+            from textwrap import wrap
+            
+            blurb = what_this_means(level=lvl, subject=subject, percentile_text=pct_text or "—")
             yby   = year_by_year_lines(row, subject)
-
-            y_top = 0.88
-            wrap_width = 96
-            line_step = 0.050
-            gap_after_heading = 0.06
-            gap_between_blocks = 0.08
-
-            ax_body.text(0.0, y_top, "What this means",
-                         transform=ax_body.transAxes, ha='left', va='top',
-                         fontsize=11, fontweight='bold')
-            blurb_wrapped = fill(blurb, width=wrap_width)
-            y_blurb = y_top - gap_after_heading
-            ax_body.text(0.0, y_blurb, blurb_wrapped,
-                         transform=ax_body.transAxes, ha='left', va='top',
-                         fontsize=11, linespacing=1.4)
-            blurb_lines = blurb_wrapped.count("\n") + 1
-            y_next_heading = y_blurb - (blurb_lines - 1) * line_step - gap_between_blocks
-
-            ax_body.text(0.0, y_next_heading, "Year-by-Year Performance",
-                         transform=ax_body.transAxes, ha='left', va='top',
-                         fontsize=11, fontweight='bold')
-            from textwrap import fill as _fill
-            yby_wrapped = "\n".join(_fill(line, width=wrap_width) for line in yby)
-            y_yby = y_next_heading - gap_after_heading
-            ax_body.text(0.0, y_yby, yby_wrapped,
-                         transform=ax_body.transAxes, ha='left', va='top',
-                         fontsize=11, linespacing=1.4)
+            
+            # Tunables
+            WRAP = 96        # characters per line before wrap
+            LINE = 0.052     # vertical step per line (axes coords). Try 0.048–0.056 to taste
+            GAP  = 0.018     # extra gap between the two blocks
+            y     = 0.92     # starting y (axes coords; top=1)
+            
             ax_body.axis('off')
+            
+            # Heading 1
+            ax_body.text(0.0, y, "What this means",
+                         transform=ax_body.transAxes, ha='left', va='top',
+                         fontsize=11, fontweight='bold')
+            y -= LINE
+            
+            # Blurb (wrapped)
+            for t in wrap(blurb or "", width=WRAP):
+                ax_body.text(0.0, y, t,
+                             transform=ax_body.transAxes, ha='left', va='top',
+                             fontsize=11)  # no linespacing
+                y -= LINE
+            
+            # Gap between blocks
+            y -= GAP
+            
+            # Heading 2
+            ax_body.text(0.0, y, "Year-by-Year Performance",
+                         transform=ax_body.transAxes, ha='left', va='top',
+                         fontsize=11, fontweight='bold')
+            y -= LINE
+            
+            # Year-by-year lines (each possibly wrapped)
+            for line in (yby or []):
+                for t in wrap(line, width=WRAP):
+                    ax_body.text(0.0, y, t,
+                                 transform=ax_body.transAxes, ha='left', va='top',
+                                 fontsize=11)
+                    y -= LINE
 
             pdf.savefig(fig)
             plt.close(fig)
