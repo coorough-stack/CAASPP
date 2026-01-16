@@ -927,7 +927,7 @@ def build_pdf_bytes(rows: pd.DataFrame, subject: str, title: str) -> bytes:
 
             # Body text (wrapped) with bold section headers
             from textwrap import fill
-            blurb = what_this_means(lvl= lvl, subject=subject, percentile_text= pct_text or "—")
+            blurb = what_this_means(level= lvl, subject=subject, percentile_text= pct_text or "—")
             yby   = year_by_year_lines(row, subject)
 
             y_top = 0.88
