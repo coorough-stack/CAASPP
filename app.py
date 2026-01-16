@@ -959,7 +959,8 @@ def build_pdf_bytes(rows: pd.DataFrame, subject: str, title: str) -> bytes:
             # Growth chart (side padding + slight up)
             build_growth_figure(row, subject, ax=ax_growth)
             pos = ax_growth.get_position()
-            ax_growth.set_position([pos.x0 + 0.012, pos.y0 + 0.012, pos.width - 2*0.012, pos.height])
+            bump_down = 0.015   # try 0.010–0.025
+            ax_growth.set_position([pos.x0 + 0.012, pos.y0 - bump_down, pos.width - 2*0.012, pos.height])
 
             # Body text (safe, line-by-line) with bold section headers
             from textwrap import wrap
