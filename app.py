@@ -966,7 +966,7 @@ def build_pdf_bytes(rows: pd.DataFrame, subject: str, title: str) -> bytes:
             
             # Tunables
             WRAP = 96        # characters per line before wrap
-            LINE = 0.08     # vertical step per line (axes coords). Try 0.048–0.056 to taste
+            LINE = 0.092     # vertical step per line (axes coords). Try 0.048–0.056 to taste
             GAP  = 0.018     # extra gap between the two blocks
             y     = 0.92     # starting y (axes coords; top=1)
             
