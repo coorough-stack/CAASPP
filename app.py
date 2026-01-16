@@ -954,7 +954,7 @@ def build_pdf_bytes(rows: pd.DataFrame, subject: str, title: str) -> bytes:
             # Level key
             draw_level_key(ax_key, subject, tested if tested else (cg or 6))
             posk = ax_key.get_position()
-            ax_key.set_position([posk.x0, posk.y0 + 0.020, posk.width, posk.height])
+            ax_key.set_position([posk.x0, posk.y0 + 0.000, posk.width, posk.height])
 
             # Growth chart (side padding + slight up)
             build_growth_figure(row, subject, ax=ax_growth)
