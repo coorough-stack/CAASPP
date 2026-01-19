@@ -1076,11 +1076,17 @@ for _, row in view.iterrows():
     st.markdown(f"**Latest Score:** {latest_score_txt}  |  {pts_txt}  |  **School Percentile:** {pct_text}")
 
     fig_trend = build_trend_figure(row, subject)
-    st.pyplot(fig_trend, dpi=160, clear_figure=True, use_container_width=True)
+    ax = fig_trend.axes[0]
+    ax.set_xlabel("Grade Tested", labelpad=12)   # keep your label move
+    st.pyplot(fig_trend, dpi=160, width='stretch')   # ← replace use_container_width
+    plt.close(fig_trend)                               # ← important: close the figure
+    
     st.markdown(level_key_inline(subject, tested), unsafe_allow_html=True)
-
+    
     fig_growth = build_growth_figure(row, subject)
-    st.pyplot(fig_growth, dpi=160, clear_figure=True, use_container_width=True)
+    st.pyplot(fig_growth, dpi=160, width='stretch')    # ← replace use_container_width
+    plt.close(fig_growth)                              # ← important: close the figure
+
 
     st.markdown("**What this means**")
     st.write(what_this_means(lvl, subject, pct_text or "—"))
