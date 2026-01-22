@@ -406,6 +406,13 @@ def sort_df(df: pd.DataFrame, how: str) -> pd.DataFrame:
     if how == "Closest to Next Level (asc)":
         prox = df["PtsToNextLevel"].fillna(9999).replace(0, 9999)
         return df.assign(_prox=prox).sort_values(["_prox", STUDENT_NAME_COL], kind="stable").drop(columns="_prox")
+    if how == "Section > Student":
+        if "Sections" in df.columns:
+            return df.sort_values(["Sections", STUDENT_NAME_COL], kind="stable")
+        if "SectionsList" in df.columns:
+            tmp = df["SectionsList"].apply(lambda x: ", ".join(x) if isinstance(x, list) else "")
+            return df.assign(_sec=tmp).sort_values(["_sec", STUDENT_NAME_COL], kind="stable").drop(columns="_sec")
+        return df.sort_values([STUDENT_NAME_COL], kind="stable")
     return df
 
 # ---- Column detection & ID normalization ----
@@ -714,6 +721,7 @@ sort_choice = st.sidebar.selectbox("Sort by", [
     "Current Grade (desc)",
     "Percentile (desc)",
     "Closest to Next Level (asc)",
+    "Section > Student",
 ], key="sort_choice_single")
 
 st.sidebar.markdown("---")
@@ -967,6 +975,8 @@ def build_pdf_bytes(rows: pd.DataFrame, subject: str, title: str) -> bytes:
             
             blurb = what_this_means(level=lvl, subject=subject, percentile_text=pct_text or "—")
             yby   = year_by_year_lines(row, subject)
+            draw_bottom_text(ax_body, blurb, yby, fontsize=11)
+
             
             # Tunables
             WRAP = 96        # characters per line before wrap
@@ -1078,13 +1088,13 @@ for _, row in view.iterrows():
     fig_trend = build_trend_figure(row, subject)
     ax = fig_trend.axes[0]
     ax.set_xlabel("Grade Tested", labelpad=12)   # keep your label move
-    st.pyplot(fig_trend, dpi=160, width='stretch')   # ← replace use_container_width
+    st.pyplot(fig_trend, use_container_width=True)   # ← replace use_container_width
     plt.close(fig_trend)                               # ← important: close the figure
     
     st.markdown(level_key_inline(subject, tested), unsafe_allow_html=True)
     
     fig_growth = build_growth_figure(row, subject)
-    st.pyplot(fig_growth, dpi=160, width='stretch')    # ← replace use_container_width
+    st.pyplot(fig_growth, use_container_width=True)    # ← replace use_container_width
     plt.close(fig_growth)                              # ← important: close the figure
 
 
