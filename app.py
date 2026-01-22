@@ -14,7 +14,7 @@ from textwrap import wrap
 def draw_bottom_text(ax, blurb: str, yby_lines: list[str], *, fontsize=11):
     """Render 'What this means' and 'Year-by-Year' with robust spacing."""
     ax.axis('off')
-    LINE = 0.052    # vertical step in axes coords (tweak 0.048–0.056 to taste)
+    LINE = 0.082    # vertical step in axes coords (tweak 0.048–0.056 to taste)
     GAP  = 0.018    # extra gap between blocks
     y = 0.96
 
@@ -921,8 +921,9 @@ def build_pdf_bytes(rows: pd.DataFrame, subject: str, title: str) -> bytes:
             ax_meta  = fig.add_subplot(gs[1:3, :])
             ax_trend = fig.add_subplot(gs[3:13, :])
             ax_key   = fig.add_subplot(gs[13:15, :])
-            ax_growth= fig.add_subplot(gs[15:18, :])
-            ax_body  = fig.add_subplot(gs[19:, :])
+            ax_growth = fig.add_subplot(gs[15:17, :])  # shrink growth 1 row
+            ax_body   = fig.add_subplot(gs[17:, :])    # body gets more rows (fixes overlap)
+
 
             name     = row.get(STUDENT_NAME_COL, "Student")
             latest   = row.get("LatestScore", np.nan)
