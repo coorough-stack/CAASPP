@@ -97,9 +97,10 @@ def read_scores_flex(uploaded_file, subject: str, swap_sbac_parts: bool = False)
     target_part = part_math if subject == "Math" else part_ela
     sbac = sbac[sbac["Part"] == target_part].copy()
 
-    # Keep only grades 30..80 step 10 and take the latest test per student/grade
+    # Keep only SBAC tested grades (3–8 and 11) and take the latest test per student/grade
     sbac["Grade1"] = sbac["Grade1"].astype(float)
-    sbac = sbac[sbac["Grade1"].isin([30, 40, 50, 60, 70, 80])]
+    sbac = sbac[sbac["Grade1"].isin(SBAC_GRADE1_CODES)]
+
     if "Date Taken" in sbac.columns:
         sbac["_date"] = pd.to_datetime(sbac["Date Taken"], errors="coerce")
         sbac = sbac.sort_values("_date").drop_duplicates(["Student ID", "Grade1"], keep="last")
@@ -117,19 +118,20 @@ def read_scores_flex(uploaded_file, subject: str, swap_sbac_parts: bool = False)
     base = raw.drop_duplicates("Student ID")[id_cols]
     out = base.merge(wide, on="Student ID", how="right")
 
-    # Ensure all expected Score_* exist
-    for g in (30, 40, 50, 60, 70, 80):
+    # Ensure all expected Score_* exist (adds Score_110 for grade 11)
+    for g in SBAC_GRADE1_CODES:
         col = f"Score_{g}"
         if col not in out.columns:
             out[col] = np.nan
+
 
     # Make sure Student ID is string for safer joins later
     out["Student ID"] = out["Student ID"].astype("string")
     return out
 
 def normalize_current_grade(df: pd.DataFrame, col: str = "Current Grade") -> pd.DataFrame:
-    """Coerce 'Current Grade' to integers 3..8.
-       Accepts values like '6', '6th', 'Grade 6', or 30/40/… (→ 3..8)."""
+    """Coerce 'Current Grade' to integers 3..12.
+       Accepts values like '6', '6th', 'Grade 6', or 30/40/… (→ 3..12)."""
     if col not in df.columns:
         return df
 
@@ -141,9 +143,9 @@ def normalize_current_grade(df: pd.DataFrame, col: str = "Current Grade") -> pd.
     # if values look like 30/40/… (Grade1 style), convert to 3..8
     num = np.where(num >= 30, np.round(num / 10.0), num)
 
-    # clamp to 3..8 and set back
+    # clamp to 3..12 and set back
     out = pd.Series(num, index=df.index).round()
-    df[col] = pd.to_numeric(out, errors="coerce").clip(lower=3, upper=8).astype("Int64")
+    df[col] = pd.to_numeric(out, errors="coerce").clip(lower=3, upper=12).astype("Int64")
     return df
 
 def _parse_grade_any(x):
@@ -160,9 +162,9 @@ def _parse_grade_any(x):
     if pd.isna(n):
         return pd.NA
     # Grade1-style 30/40/... -> 3..8
-    if 30 <= n <= 80:
+    if 30 <= n <= 120:
         n = int(round(n / 10.0))
-    return int(n) if 3 <= int(n) <= 8 else pd.NA
+    return int(n) if 3 <= int(n) <= 12 else pd.NA
 
 def ensure_current_grade(df: pd.DataFrame) -> pd.DataFrame:
     """
@@ -193,7 +195,7 @@ def ensure_current_grade(df: pd.DataFrame) -> pd.DataFrame:
     # 4) last resort: infer from which Score_* exists (take max present → “current”)
     if cg is None or cg.isna().all():
         def _infer_from_scores(row):
-            present = [g for g in range(3,9) if pd.notna(row.get(f"Score_{g*10}", pd.NA))]
+            present = [g for g in range(3,13) if pd.notna(row.get(f"Score_{g*10}", pd.NA))]
             return pd.NA if not present else max(present)
         cg = df.apply(_infer_from_scores, axis=1)
 
@@ -243,6 +245,7 @@ MATH_THRESHOLDS = {
     6: (2473, 2552, 2610),
     7: (2484, 2567, 2635),
     8: (2504, 2586, 2653),
+    11: (2543, 2628, 2718),
 }
 ELA_THRESHOLDS = {
     3: (2367, 2432, 2490),
@@ -251,10 +254,15 @@ ELA_THRESHOLDS = {
     6: (2457, 2531, 2618),
     7: (2479, 2552, 2649),
     8: (2487, 2567, 2668),
+    11: (2493, 2583, 2682),
 }
 THRESHOLDS = {"Math": MATH_THRESHOLDS, "ELA": ELA_THRESHOLDS}
 
-SCORE_COLS = [f"Score_{g*10}" for g in range(3, 9)]  # Score_30..Score_80
+SBAC_TESTED_GRADES = [3, 4, 5, 6, 7, 8, 11]
+SBAC_GRADE1_CODES  = [g * 10 for g in SBAC_TESTED_GRADES]  # 30..80 plus 110
+
+SCORE_COLS = [f"Score_{g*10}" for g in SBAC_TESTED_GRADES]  # Score_30..Score_80 + Score_110
+
 STUDENT_ID_COL = "Student ID"
 STUDENT_NAME_COL = "Student"
 CURRENT_GRADE_COL = "Current Grade"
@@ -303,11 +311,12 @@ def points_to_next_level(score: float, subject: str, grade: int) -> int:
     return 0
 
 def _latest_score_and_grade(row: pd.Series) -> Tuple[float, Optional[int]]:
-    for g in range(8, 2, -1):
+    for g in sorted(SBAC_TESTED_GRADES, reverse=True):
         col = f"Score_{g*10}"
         if col in row.index and pd.notna(row[col]):
             return row[col], g
     return (np.nan, None)
+
 
 def ensure_name_column(df: pd.DataFrame) -> pd.DataFrame:
     if STUDENT_NAME_COL in df.columns:
@@ -548,7 +557,7 @@ def draw_level_key(ax, subject: str, grade: int):
 # ---- Visual builders ----
 def build_trend_figure(row: pd.Series, subject: str, dpi: int = 160, ax=None):
     pts = []
-    for g in range(3, 9):
+    for g in SBAC_TESTED_GRADES:
         col = f"Score_{g*10}"
         if col in row.index and pd.notna(row[col]):
             pts.append((g, float(row[col])))
@@ -573,6 +582,8 @@ def build_trend_figure(row: pd.Series, subject: str, dpi: int = 160, ax=None):
         grade_gap = 0.08
         w = 1.0 - grade_gap
         for g in range(min(grades), max(grades) + 1):
+            if g not in THRESHOLDS[subject]:
+                continue
             L2, L3, L4 = thresholds_for(subject, g)
             x0 = g - w / 2
             for y0, y1, col in [(ylo, L2, ISR_COLORS[1]),
@@ -641,7 +652,8 @@ def build_trend_figure(row: pd.Series, subject: str, dpi: int = 160, ax=None):
     if grades:
         ax.set_xlim(min(grades) - 0.6, max(grades) + 0.6)
     ax.set_ylim(ylo, yhi)
-    ax.set_xticks(range(3, 9))
+    ticks = [g for g in range(min(grades), max(grades) + 1)] if grades else list(range(3, 9))
+    ax.set_xticks(ticks)
     ax.set_xlabel("Grade Tested")
     ax.set_ylabel("Scale score")
     ax.grid(axis="y", color="#DDDDDD", alpha=0.7, linestyle="--", linewidth=0.8)
@@ -653,7 +665,7 @@ def build_trend_figure(row: pd.Series, subject: str, dpi: int = 160, ax=None):
         return ax
 
 def build_growth_figure(row: pd.Series, subject: str, dpi: int = 160, ax=None):
-    seq = [(g, float(row[f"Score_{g*10}"])) for g in range(3,9)
+    seq = [(g, float(row[f"Score_{g*10}"])) for g in SBAC_TESTED_GRADES
            if f"Score_{g*10}" in row.index and pd.notna(row[f"Score_{g*10}"])]
     created_fig = False
     if ax is None:
@@ -711,7 +723,12 @@ school_name = st.sidebar.text_input("School Name", value="CK Price", key="school
 scores_up = st.sidebar.file_uploader("Load Student Scores CSV", type=["csv"], key="scores_csv_single")
 
 st.sidebar.markdown("---")
-grades_filter = st.sidebar.multiselect("Filter by Current Grade", [3,4,5,6,7,8], default=[], key="grades_filter_single")
+grades_filter = st.sidebar.multiselect(
+    "Filter by Current Grade",
+    list(range(3, 13)),  # 3..12
+    default=[],
+    key="grades_filter_single",
+)
 levels_filter = st.sidebar.multiselect("Filter by Level", [1,2,3,4], default=[], key="levels_filter_single")
 hide_lvl4 = st.sidebar.checkbox("Hide Level 4", value=False, key="hide_lvl4_single")
 
@@ -1039,7 +1056,7 @@ def what_this_means(level: int, subject: str, percentile_text: str) -> str:
 
 def year_by_year_lines(row: pd.Series, subject: str) -> List[str]:
     lines = []
-    for g in range(3, 9):
+    for g in SBAC_TESTED_GRADES:
         col = f"Score_{g*10}"
         if col in row.index and pd.notna(row[col]):
             s = int(round(float(row[col])))
