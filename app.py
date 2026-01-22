@@ -16,7 +16,7 @@ def draw_bottom_text(ax, blurb: str, yby_lines: list[str], *, fontsize=11):
     ax.axis('off')
     LINE = 0.082    # vertical step in axes coords (tweak 0.048–0.056 to taste)
     GAP  = 0.018    # extra gap between blocks
-    y = 0.96
+    y = 0.8
 
     # Heading 1
     ax.text(0.0, y, "What this means", transform=ax.transAxes,
