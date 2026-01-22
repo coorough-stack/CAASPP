@@ -1009,12 +1009,7 @@ def build_pdf_bytes(rows: pd.DataFrame, subject: str, title: str) -> bytes:
                          fontsize=11, fontweight='bold')
             y -= LINE
             
-            # Blurb (wrapped)
-            for t in wrap(blurb or "", width=WRAP):
-                ax_body.text(0.0, y, t,
-                             transform=ax_body.transAxes, ha='left', va='top',
-                             fontsize=11)  # no linespacing
-                y -= LINE
+
             
             # Gap between blocks
             y -= GAP
