@@ -987,51 +987,11 @@ def build_pdf_bytes(rows: pd.DataFrame, subject: str, title: str) -> bytes:
             bump_down = 0.015   # try 0.010–0.025
             ax_growth.set_position([pos.x0 + 0.012, pos.y0 - bump_down, pos.width - 2*0.012, pos.height])
 
-            # Body text (safe, line-by-line) with bold section headers
-            from textwrap import wrap
-            
+           # Body text (safe, line-by-line)
             blurb = what_this_means(level=lvl, subject=subject, percentile_text=pct_text or "—")
             yby   = year_by_year_lines(row, subject)
             draw_bottom_text(ax_body, blurb, yby, fontsize=11)
 
-            
-            # Tunables
-            WRAP = 96        # characters per line before wrap
-            LINE = 0.14     # vertical step per line (axes coords). Try 0.048–0.056 to taste
-            GAP  = 0.018     # extra gap between the two blocks
-            y     = 0.92     # starting y (axes coords; top=1)
-            
-            ax_body.axis('off')
-            
-            # Heading 1
-            ax_body.text(0.0, y, "What this means",
-                         transform=ax_body.transAxes, ha='left', va='top',
-                         fontsize=11, fontweight='bold')
-            y -= LINE
-            
-            # Blurb (wrapped)
-            for t in wrap(blurb or "", width=WRAP):
-                ax_body.text(0.0, y, t,
-                             transform=ax_body.transAxes, ha='left', va='top',
-                             fontsize=11)  # no linespacing
-                y -= LINE
-            
-            # Gap between blocks
-            y -= GAP
-            
-            # Heading 2
-            ax_body.text(0.0, y, "Year-by-Year Performance",
-                         transform=ax_body.transAxes, ha='left', va='top',
-                         fontsize=11, fontweight='bold')
-            y -= LINE
-            
-            # Year-by-year lines (each possibly wrapped)
-            for line in (yby or []):
-                for t in wrap(line, width=WRAP):
-                    ax_body.text(0.0, y, t,
-                                 transform=ax_body.transAxes, ha='left', va='top',
-                                 fontsize=11)
-                    y -= LINE
 
             pdf.savefig(fig)
             plt.close(fig)
