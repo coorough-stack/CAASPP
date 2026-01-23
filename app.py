@@ -942,7 +942,7 @@ def add_reflection_page(pdf, *, student_name: str, subject: str, dpi: int = 160)
             ax.hlines(yy, 0.0, 1.0, transform=ax.transAxes, linewidth=0.8, alpha=0.7)
 
         # extra space after answer lines
-        return y - n_lines * line_gap - -0.06
+        return y - n_lines * line_gap - 0.00
 
     # Questions (tweak n_lines if you want more/less writing space)
     y = 0.87
