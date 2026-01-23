@@ -934,7 +934,7 @@ def add_reflection_page(pdf, *, student_name: str, subject: str, dpi: int = 160)
         ax.text(0.0, y, f"{num}. {text}",
                 transform=ax.transAxes, ha="left", va="top",
                 fontsize=13, fontweight="bold")
-        y -= 0.040  # space after question
+        y -= 0.055  # space after question
 
         line_gap = 0.045
         for i in range(n_lines):
