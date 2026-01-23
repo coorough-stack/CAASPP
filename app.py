@@ -934,7 +934,7 @@ def add_reflection_page(pdf, *, student_name: str, subject: str, dpi: int = 160)
         ax.text(0.0, y, f"{num}. {text}",
                 transform=ax.transAxes, ha="left", va="top",
                 fontsize=13, fontweight="bold")
-        y -= 0.030  # space after question
+        y -= 0.040  # space after question
 
         line_gap = 0.045
         for i in range(n_lines):
@@ -945,7 +945,7 @@ def add_reflection_page(pdf, *, student_name: str, subject: str, dpi: int = 160)
         return y - n_lines * line_gap - 0.00
 
     # Questions (tweak n_lines if you want more/less writing space)
-    y = 0.77
+    y = 0.87
     y = _question(1, "What is your goal?", y, n_lines=5)
     y = _question(2, "What will you do to reach your goal?", y, n_lines=7)
     y = _question(3, "How can the teacher support you in reaching your goal?", y, n_lines=5)
