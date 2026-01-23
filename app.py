@@ -906,6 +906,54 @@ view = sort_df(view, sort_choice)
 if pick_mode == "First N only":
     view = view.head(int(first_n))
 
+# Reflection questions page
+def add_reflection_page(pdf, *, student_name: str, subject: str, dpi: int = 160):
+    """Append a second page (back side) with reflection questions. PDF-only."""
+    fig = plt.figure(figsize=(8.5, 11), dpi=dpi, constrained_layout=False)
+    fig.subplots_adjust(left=0.085, right=0.99, top=0.975, bottom=0.06)
+
+    # Single full-page axis for clean layout
+    ax = fig.add_axes([0.085, 0.06, 0.99 - 0.085, 0.975 - 0.06])
+    ax.axis("off")
+
+    # Header
+    ax.text(0.0, 0.98, "Student Reflection & Goals",
+            transform=ax.transAxes, ha="left", va="top",
+            fontsize=18, fontweight="bold")
+    ax.text(0.0, 0.94, f"Student: {student_name}",
+            transform=ax.transAxes, ha="left", va="top", fontsize=12)
+    ax.text(0.62, 0.94, "Date: ________________",
+            transform=ax.transAxes, ha="left", va="top", fontsize=12)
+    ax.text(0.0, 0.91, f"Subject: {subject}",
+            transform=ax.transAxes, ha="left", va="top", fontsize=12)
+
+    ax.hlines(0.895, 0.0, 1.0, transform=ax.transAxes, linewidth=0.8, alpha=0.6)
+
+    # Question block helper
+    def _question(num: int, text: str, y: float, n_lines: int) -> float:
+        ax.text(0.0, y, f"{num}. {text}",
+                transform=ax.transAxes, ha="left", va="top",
+                fontsize=13, fontweight="bold")
+        y -= 0.045  # space after question
+
+        line_gap = 0.045
+        for i in range(n_lines):
+            yy = y - i * line_gap
+            ax.hlines(yy, 0.0, 1.0, transform=ax.transAxes, linewidth=0.8, alpha=0.7)
+
+        # extra space after answer lines
+        return y - n_lines * line_gap - 0.06
+
+    # Questions (tweak n_lines if you want more/less writing space)
+    y = 0.84
+    y = _question(1, "What is your goal?", y, n_lines=5)
+    y = _question(2, "What will you do to reach your goal?", y, n_lines=7)
+    y = _question(3, "How can the teacher support you in reaching your goal?", y, n_lines=5)
+
+    pdf.savefig(fig)
+    plt.close(fig)
+
+
 # ---------- Export: PDF (one page per student) ----------
 st.markdown("### Export")
 def build_pdf_bytes(rows: pd.DataFrame, subject: str, title: str) -> bytes:
@@ -996,6 +1044,9 @@ def build_pdf_bytes(rows: pd.DataFrame, subject: str, title: str) -> bytes:
 
             pdf.savefig(fig)
             plt.close(fig)
+
+            # Page 2 (back side): reflection questions (PDF-only)
+            add_reflection_page(pdf, student_name=str(name), subject=subject, dpi=160)
     return buf.getvalue()
 
 def what_this_means(level: int, subject: str, percentile_text: str) -> str:
