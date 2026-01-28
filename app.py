@@ -874,58 +874,49 @@ if sections_up is not None:
         df["SectionsList"] = merged_sections["__sections"]
         df["Sections"] = merged_sections["__sections"].apply(lambda x: ", ".join(x) if isinstance(x, list) else "")
 
-        # Sidebar filters: room prefix (e.g., "20") + specific sections (e.g., "201")
+        # Sidebar filters: room + specific sections (union)
         all_sections = sorted({sec for lst in df["SectionsList"].dropna() for sec in lst})
-        
+
         # Room options: everything except the last digit (period).
         # Examples: "201" -> room "20", "31" -> room "3"
         room_set = set()
-        for sec in all_sections:
-            s = str(sec).strip()
+        for sec_code in all_sections:
+            s = str(sec_code).strip()
             if s.isdigit() and len(s) >= 2:
                 room_set.add(str(int(s[:-1])))  # normalize e.g. "03" -> "3"
         room_options = sorted(room_set, key=lambda x: int(x))
-        
+
         selected_rooms = st.sidebar.multiselect(
             "Filter by Room (e.g., 20 → 201,202… ; 3 → 31,32…)",
             options=room_options,
             default=[],
             key="filter_rooms_v1",
         )
-        
-        selected_rooms = st.sidebar.multiselect(
-        "Filter by Room (e.g., 20 → 201,202… ; 3 → 31,32…)",
-        options=room_options,
-        default=[],
-        key="filter_rooms_v1",
-    )
-    
-    # ✅ Bring back manual section filtering
-    selected_sections_manual = st.sidebar.multiselect(
-        "Filter by Section",
-        options=all_sections,
-        default=[],
-        key="filter_sections_v1",
-    )
-    
-    # Expand rooms -> sections (room part = everything except last digit)
-    expanded_from_rooms = set()
-    if selected_rooms:
-        room_sel = set(map(str, selected_rooms))
-        for sec_code in all_sections:
-            ssec = str(sec_code).strip()
-            if not ssec.isdigit() or len(ssec) < 2:
-                continue
-            room_part = str(int(ssec[:-1]))  # drop period digit
-            if room_part in room_sel:
-                expanded_from_rooms.add(ssec)
-    
-    # Final sections = (manual picks) UNION (room picks)
-    final_sections = set(map(lambda x: str(x).strip(), selected_sections_manual)) | expanded_from_rooms
-    
-    # Keep numeric sort if possible
-    selected_sections = sorted(final_sections, key=lambda x: int(x) if str(x).isdigit() else x)
 
+        selected_sections_manual = st.sidebar.multiselect(
+            "Filter by Section",
+            options=all_sections,
+            default=[],
+            key="filter_sections_v1",
+        )
+
+        # Expand rooms -> sections (room part = everything except last digit)
+        expanded_from_rooms = set()
+        if selected_rooms:
+            room_sel = set(map(str, selected_rooms))
+            for sec_code in all_sections:
+                ssec = str(sec_code).strip()
+                if not ssec.isdigit() or len(ssec) < 2:
+                    continue
+                room_part = str(int(ssec[:-1]))  # drop period digit
+                if room_part in room_sel:
+                    expanded_from_rooms.add(ssec)
+
+        # Final sections = (manual picks) UNION (room picks)
+        final_sections = set(str(x).strip() for x in selected_sections_manual) | expanded_from_rooms
+
+        # Keep numeric sort if possible
+        selected_sections = sorted(final_sections, key=lambda x: int(x) if str(x).isdigit() else x)
 
         
         # Diagnostics
