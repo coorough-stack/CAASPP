@@ -448,25 +448,16 @@ def sort_df(df: pd.DataFrame, how: str) -> pd.DataFrame:
         prox = df["PtsToNextLevel"].fillna(9999).replace(0, 9999)
         return df.assign(_prox=prox).sort_values(["_prox", STUDENT_NAME_COL], kind="stable").drop(columns="_prox")
     if how == "Section > Student":
-        # Prefer the matched sort key created by apply_section_filter
-        if "_sort_section" in df.columns:
-            return df.sort_values(["_sort_section", STUDENT_NAME_COL], kind="stable").drop(columns="_sort_section")
-    
-        # Fallback if no filter is applied: sort by min numeric section overall
-        def _min_section_num(val):
-            found = re.findall(r"\d+", str(val))
-            nums = [int(x) for x in found] if found else []
-            return min(nums) if nums else 999999
-    
-        if "SectionsList" in df.columns:
-            key = df["SectionsList"].apply(lambda lst: min([int(x) for x in re.findall(r"\d+", str(lst))], default=999999))
-            return df.assign(_secnum=key).sort_values(["_secnum", STUDENT_NAME_COL], kind="stable").drop(columns="_secnum")
-    
-        if "Sections" in df.columns:
-            key = df["Sections"].apply(_min_section_num)
-            return df.assign(_secnum=key).sort_values(["_secnum", STUDENT_NAME_COL], kind="stable").drop(columns="_secnum")
-    
-        return df.sort_values([STUDENT_NAME_COL], kind="stable")
+    if "_sort_section" in df.columns:
+        return df.sort_values(["_sort_section", STUDENT_NAME_COL], kind="stable").drop(columns="_sort_section")
+    if "Sections" in df.columns:
+        return df.sort_values(["Sections", STUDENT_NAME_COL], kind="stable")
+    if "SectionsList" in df.columns:
+        tmp = df["SectionsList"].apply(lambda x: ", ".join(x) if isinstance(x, list) else "")
+        return df.assign(_sec=tmp).sort_values(["_sec", STUDENT_NAME_COL], kind="stable").drop(columns="_sec")
+    return df.sort_values([STUDENT_NAME_COL], kind="stable")
+
+
 
 
 
@@ -920,48 +911,42 @@ if sections_up is not None:
         df["SectionsList"] = merged_sections["__sections"]
         df["Sections"] = merged_sections["__sections"].apply(lambda x: ", ".join(x) if isinstance(x, list) else "")
 
-        # Sidebar filters: room + specific sections (union)
+        # Sidebar filters: Room + Section (Room expands into Section codes)
         all_sections = sorted({sec for lst in df["SectionsList"].dropna() for sec in lst})
-
-        # Room options: everything except the last digit (period).
-        # Examples: "201" -> room "20", "31" -> room "3"
-        room_set = set()
-        for sec_code in all_sections:
+        
+        def _room_part(sec_code: str):
             s = str(sec_code).strip()
+            # room = everything except last digit (period). Example: "201"->"20", "31"->"3"
             if s.isdigit() and len(s) >= 2:
-                room_set.add(str(int(s[:-1])))  # normalize e.g. "03" -> "3"
-        room_options = sorted(room_set, key=lambda x: int(x))
-
+                return str(int(s[:-1]))  # normalize "03"->"3"
+            return None
+        
+        room_options = sorted({rp for rp in (_room_part(x) for x in all_sections) if rp is not None}, key=lambda x: int(x))
+        
         selected_rooms = st.sidebar.multiselect(
             "Filter by Room (e.g., 20 → 201,202… ; 3 → 31,32…)",
             options=room_options,
             default=[],
             key="filter_rooms_v1",
         )
-
+        
         selected_sections_manual = st.sidebar.multiselect(
             "Filter by Section",
             options=all_sections,
             default=[],
             key="filter_sections_v1",
         )
-
-        # Expand rooms -> sections (room part = everything except last digit)
+        
+        # Expand selected rooms into their sections, then UNION with manually selected sections
         expanded_from_rooms = set()
         if selected_rooms:
             room_sel = set(map(str, selected_rooms))
             for sec_code in all_sections:
-                ssec = str(sec_code).strip()
-                if not ssec.isdigit() or len(ssec) < 2:
-                    continue
-                room_part = str(int(ssec[:-1]))  # drop period digit
-                if room_part in room_sel:
-                    expanded_from_rooms.add(ssec)
-
-        # Final sections = (manual picks) UNION (room picks)
+                rp = _room_part(sec_code)
+                if rp in room_sel:
+                    expanded_from_rooms.add(str(sec_code).strip())
+        
         final_sections = set(str(x).strip() for x in selected_sections_manual) | expanded_from_rooms
-
-        # Keep numeric sort if possible
         selected_sections = sorted(final_sections, key=lambda x: int(x) if str(x).isdigit() else x)
 
         
@@ -984,35 +969,26 @@ df = attach_latest_and_percentiles(df, subject)   # recompute percentiles/levels
 
 # Filters / sort
 view = filter_by_grade_and_level(df, grades_filter, levels_filter, hide_lvl4)
-# NEW: filter by selected sections (if any)
 view = apply_section_filter(view, selected_sections)
-# If sorting by section, build a numeric sort key based on the CURRENT selection
-# (room-expanded sections + manually selected sections)
-if sort_choice == "Section > Student" and "SectionsList" in view.columns:
-    sel_set = set(str(s).strip() for s in (selected_sections or []))
 
-    def _pick_sort_section(lst):
+# If sorting by section, create a sort key based on the MATCHED section from selected_sections
+if sort_choice == "Section > Student" and selected_sections and "SectionsList" in view.columns:
+    sel = set(str(s).strip() for s in selected_sections)
+
+    def _matched_section_key(lst):
         if not isinstance(lst, list):
             return 999999
+        nums = [int(str(x).strip()) for x in lst
+                if str(x).strip().isdigit() and str(x).strip() in sel]
+        return min(nums) if nums else 999999
 
-        # Prefer sections that are actually selected (room/section filter)
-        nums = []
-        for s in lst:
-            ss = str(s).strip()
-            if ss.isdigit() and (not sel_set or ss in sel_set):
-                nums.append(int(ss))
-        if nums:
-            return min(nums)
-
-        # Fallback: smallest numeric section in the list
-        nums2 = [int(str(s).strip()) for s in lst if str(s).strip().isdigit()]
-        return min(nums2) if nums2 else 999999
-
-    view = view.assign(_sort_section=view["SectionsList"].apply(_pick_sort_section))
+    view["_sort_section"] = view["SectionsList"].apply(_matched_section_key)
 
 view = sort_df(view, sort_choice)
+
 if pick_mode == "First N only":
     view = view.head(int(first_n))
+
 
 # Reflection questions page
 def add_reflection_page(pdf, *, student_name: str, subject: str, dpi: int = 160):
