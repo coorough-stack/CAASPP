@@ -9,6 +9,8 @@ import matplotlib.pyplot as plt
 from matplotlib.patches import Rectangle
 from matplotlib.backends.backend_pdf import PdfPages
 
+import re
+
 from textwrap import wrap
 
 def draw_bottom_text(ax, blurb: str, yby_lines: list[str], *, fontsize=11):
