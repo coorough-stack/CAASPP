@@ -448,14 +448,14 @@ def sort_df(df: pd.DataFrame, how: str) -> pd.DataFrame:
         prox = df["PtsToNextLevel"].fillna(9999).replace(0, 9999)
         return df.assign(_prox=prox).sort_values(["_prox", STUDENT_NAME_COL], kind="stable").drop(columns="_prox")
     if how == "Section > Student":
-    if "_sort_section" in df.columns:
-        return df.sort_values(["_sort_section", STUDENT_NAME_COL], kind="stable").drop(columns="_sort_section")
-    if "Sections" in df.columns:
-        return df.sort_values(["Sections", STUDENT_NAME_COL], kind="stable")
-    if "SectionsList" in df.columns:
-        tmp = df["SectionsList"].apply(lambda x: ", ".join(x) if isinstance(x, list) else "")
-        return df.assign(_sec=tmp).sort_values(["_sec", STUDENT_NAME_COL], kind="stable").drop(columns="_sec")
-    return df.sort_values([STUDENT_NAME_COL], kind="stable")
+        if "_sort_section" in df.columns:
+            return df.sort_values(["_sort_section", STUDENT_NAME_COL], kind="stable").drop(columns="_sort_section")
+        if "Sections" in df.columns:
+            return df.sort_values(["Sections", STUDENT_NAME_COL], kind="stable")
+        if "SectionsList" in df.columns:
+            tmp = df["SectionsList"].apply(lambda x: ", ".join(x) if isinstance(x, list) else "")
+            return df.assign(_sec=tmp).sort_values(["_sec", STUDENT_NAME_COL], kind="stable").drop(columns="_sec")
+        return df.sort_values([STUDENT_NAME_COL], kind="stable")
 
 
 
