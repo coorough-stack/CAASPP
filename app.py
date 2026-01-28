@@ -874,10 +874,41 @@ if sections_up is not None:
         df["SectionsList"] = merged_sections["__sections"]
         df["Sections"] = merged_sections["__sections"].apply(lambda x: ", ".join(x) if isinstance(x, list) else "")
 
-        # Sidebar multiselect for section filter (populate from attached data)
+        # Sidebar filters: room prefix (e.g., "20") + specific sections (e.g., "201")
         all_sections = sorted({sec for lst in df["SectionsList"].dropna() for sec in lst})
-        selected_sections = st.sidebar.multiselect("Filter by Section", options=all_sections, default=[], key="filter_sections_v1")
+        
+        # Room options: everything except the last digit (period).
+        # Examples: "201" -> room "20", "31" -> room "3"
+        room_set = set()
+        for sec in all_sections:
+            s = str(sec).strip()
+            if s.isdigit() and len(s) >= 2:
+                room_set.add(str(int(s[:-1])))  # normalize e.g. "03" -> "3"
+        room_options = sorted(room_set, key=lambda x: int(x))
+        
+        selected_rooms = st.sidebar.multiselect(
+            "Filter by Room (e.g., 20 → 201,202… ; 3 → 31,32…)",
+            options=room_options,
+            default=[],
+            key="filter_rooms_v1",
+        )
+        
+        # Expand selected_sections to include ALL sections whose room-part matches a selected room
+        if selected_rooms:
+            room_sel = set(map(str, selected_rooms))
+            expanded = set(map(str, selected_sections))
+        
+            for sec_code in all_sections:
+                ssec = str(sec_code).strip()
+                if not ssec.isdigit() or len(ssec) < 2:
+                    continue
+                room_part = str(int(ssec[:-1]))  # drop period digit
+                if room_part in room_sel:
+                    expanded.add(ssec)
+        
+            selected_sections = sorted(expanded, key=lambda x: int(x))
 
+        
         # Diagnostics
         matched = df["Sections"].ne("").sum()
         st.success(f"Sections attached to {matched}/{len(df)} students.")
