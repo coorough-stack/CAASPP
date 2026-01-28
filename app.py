@@ -416,13 +416,14 @@ def sort_df(df: pd.DataFrame, how: str) -> pd.DataFrame:
         prox = df["PtsToNextLevel"].fillna(9999).replace(0, 9999)
         return df.assign(_prox=prox).sort_values(["_prox", STUDENT_NAME_COL], kind="stable").drop(columns="_prox")
     if how == "Section > Student":
+        if "_sort_section" in df.columns:
+            return df.sort_values(["_sort_section", STUDENT_NAME_COL], kind="stable").drop(columns=["_sort_section"])
         if "Sections" in df.columns:
             return df.sort_values(["Sections", STUDENT_NAME_COL], kind="stable")
         if "SectionsList" in df.columns:
             tmp = df["SectionsList"].apply(lambda x: ", ".join(x) if isinstance(x, list) else "")
             return df.assign(_sec=tmp).sort_values(["_sec", STUDENT_NAME_COL], kind="stable").drop(columns="_sec")
         return df.sort_values([STUDENT_NAME_COL], kind="stable")
-    return df
 
 # ---- Column detection & ID normalization ----
 def detect_sid_column(df: pd.DataFrame) -> Optional[str]:
@@ -940,6 +941,30 @@ df = attach_latest_and_percentiles(df, subject)   # recompute percentiles/levels
 view = filter_by_grade_and_level(df, grades_filter, levels_filter, hide_lvl4)
 # NEW: filter by selected sections (if any)
 view = apply_section_filter(view, selected_sections)
+# If sorting by section, build a numeric sort key based on the CURRENT selection
+# (room-expanded sections + manually selected sections)
+if sort_choice == "Section > Student" and "SectionsList" in view.columns:
+    sel_set = set(str(s).strip() for s in (selected_sections or []))
+
+    def _pick_sort_section(lst):
+        if not isinstance(lst, list):
+            return 999999
+
+        # Prefer sections that are actually selected (room/section filter)
+        nums = []
+        for s in lst:
+            ss = str(s).strip()
+            if ss.isdigit() and (not sel_set or ss in sel_set):
+                nums.append(int(ss))
+        if nums:
+            return min(nums)
+
+        # Fallback: smallest numeric section in the list
+        nums2 = [int(str(s).strip()) for s in lst if str(s).strip().isdigit()]
+        return min(nums2) if nums2 else 999999
+
+    view = view.assign(_sort_section=view["SectionsList"].apply(_pick_sort_section))
+
 view = sort_df(view, sort_choice)
 if pick_mode == "First N only":
     view = view.head(int(first_n))
