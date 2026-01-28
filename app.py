@@ -416,14 +416,28 @@ def sort_df(df: pd.DataFrame, how: str) -> pd.DataFrame:
         prox = df["PtsToNextLevel"].fillna(9999).replace(0, 9999)
         return df.assign(_prox=prox).sort_values(["_prox", STUDENT_NAME_COL], kind="stable").drop(columns="_prox")
     if how == "Section > Student":
-        if "_sort_section" in df.columns:
-            return df.sort_values(["_sort_section", STUDENT_NAME_COL], kind="stable").drop(columns=["_sort_section"])
-        if "Sections" in df.columns:
-            return df.sort_values(["Sections", STUDENT_NAME_COL], kind="stable")
+        def _min_section_num(val):
+            if isinstance(val, list):
+                nums = [int(str(x).strip()) for x in val if str(x).strip().isdigit()]
+                return min(nums) if nums else 999999
+
+            s = str(val).strip()
+            if not s:
+                return 999999
+            parts = [p.strip() for p in s.split(",")]
+            nums = [int(p) for p in parts if p.isdigit()]
+            return min(nums) if nums else 999999
+
         if "SectionsList" in df.columns:
-            tmp = df["SectionsList"].apply(lambda x: ", ".join(x) if isinstance(x, list) else "")
-            return df.assign(_sec=tmp).sort_values(["_sec", STUDENT_NAME_COL], kind="stable").drop(columns="_sec")
+            key = df["SectionsList"].apply(_min_section_num)
+            return df.assign(_secnum=key).sort_values(["_secnum", STUDENT_NAME_COL], kind="stable").drop(columns="_secnum")
+
+        if "Sections" in df.columns:
+            key = df["Sections"].apply(_min_section_num)
+            return df.assign(_secnum=key).sort_values(["_secnum", STUDENT_NAME_COL], kind="stable").drop(columns="_secnum")
+
         return df.sort_values([STUDENT_NAME_COL], kind="stable")
+
 
 # ---- Column detection & ID normalization ----
 def detect_sid_column(df: pd.DataFrame) -> Optional[str]:
@@ -965,9 +979,6 @@ if sort_choice == "Section > Student" and "SectionsList" in view.columns:
 
     view = view.assign(_sort_section=view["SectionsList"].apply(_pick_sort_section))
 
-view = sort_df(view, sort_choice)
-if pick_mode == "First N only":
-    view = view.head(int(first_n))
 view = sort_df(view, sort_choice)
 if pick_mode == "First N only":
     view = view.head(int(first_n))
