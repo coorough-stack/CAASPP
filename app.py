@@ -893,20 +893,39 @@ if sections_up is not None:
             key="filter_rooms_v1",
         )
         
-        # Expand selected_sections to include ALL sections whose room-part matches a selected room
-        if selected_rooms:
-            room_sel = set(map(str, selected_rooms))
-            expanded = set(map(str, selected_sections))
-        
-            for sec_code in all_sections:
-                ssec = str(sec_code).strip()
-                if not ssec.isdigit() or len(ssec) < 2:
-                    continue
-                room_part = str(int(ssec[:-1]))  # drop period digit
-                if room_part in room_sel:
-                    expanded.add(ssec)
-        
-            selected_sections = sorted(expanded, key=lambda x: int(x))
+        selected_rooms = st.sidebar.multiselect(
+        "Filter by Room (e.g., 20 → 201,202… ; 3 → 31,32…)",
+        options=room_options,
+        default=[],
+        key="filter_rooms_v1",
+    )
+    
+    # ✅ Bring back manual section filtering
+    selected_sections_manual = st.sidebar.multiselect(
+        "Filter by Section",
+        options=all_sections,
+        default=[],
+        key="filter_sections_v1",
+    )
+    
+    # Expand rooms -> sections (room part = everything except last digit)
+    expanded_from_rooms = set()
+    if selected_rooms:
+        room_sel = set(map(str, selected_rooms))
+        for sec_code in all_sections:
+            ssec = str(sec_code).strip()
+            if not ssec.isdigit() or len(ssec) < 2:
+                continue
+            room_part = str(int(ssec[:-1]))  # drop period digit
+            if room_part in room_sel:
+                expanded_from_rooms.add(ssec)
+    
+    # Final sections = (manual picks) UNION (room picks)
+    final_sections = set(map(lambda x: str(x).strip(), selected_sections_manual)) | expanded_from_rooms
+    
+    # Keep numeric sort if possible
+    selected_sections = sorted(final_sections, key=lambda x: int(x) if str(x).isdigit() else x)
+
 
         
         # Diagnostics
