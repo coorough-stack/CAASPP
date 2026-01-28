@@ -936,13 +936,57 @@ if sections_up is not None:
             return None
         
         room_options = sorted({rp for rp in (_room_part(x) for x in all_sections) if rp is not None}, key=lambda x: int(x))
+
+        # Map room -> teacher last name for display in the Room filter
+        ROOM_TO_TEACHER = {
+            "23": "Allen",
+            "31": "Bennett",
+            "18": "Cabral",
+            "9":  "Colligan",
+            "20": "Coorough",
+            "21": "Dickerson",
+            "30": "Faver",
+            "6":  "Feller",
+            "35": "Garth",
+            "12": "Hobbs",
+            "17": "Kniffel",
+            "22": "Landeros",
+            "28": "Mclane",
+            "3":  "Medina",
+            "16": "Mendes",
+            "27": "Ovitz",
+            "11": "Quiles",
+            "25": "Ramirez",
+            "1":  "Ramirez-Carrillo",
+            "24": "Rolls",
+            "2":  "Romero",
+            "10": "Romo",
+            "4":  "Salas",
+            "29": "Sanchez-Pano",
+            "5":  "Schafer",
+            "13": "Starkey",
+            "19": "Watson",
+        }
+
+        def _room_label(r: str) -> str:
+            r = str(r).strip()
+            t = ROOM_TO_TEACHER.get(r, "")
+            return f"{r} - {t.lower()}" if t else r
+
+        room_labels = [_room_label(r) for r in room_options]
+        label_to_room = {_room_label(r): str(r).strip() for r in room_options}
+
         
-        selected_rooms = st.sidebar.multiselect(
-            "Filter by Room (e.g., 20 → 201,202… ; 3 → 31,32…)",
-            options=room_options,
+        selected_room_labels = st.sidebar.multiselect(
+            "Filter by Room (e.g. 20 → 201,202… ; 3 → 31,32…)",
+            options=room_labels,
             default=[],
-            key="filter_rooms_v1",
+            key="filter_rooms_v2",
         )
+
+        # Convert labels back to the actual room numbers for filtering logic
+        selected_rooms = [label_to_room[lbl] for lbl in selected_room_labels]
+
         
         selected_sections_manual = st.sidebar.multiselect(
             "Filter by Section",
