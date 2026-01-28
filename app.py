@@ -241,7 +241,7 @@ def apply_section_filter(_df: pd.DataFrame, selected_sections: list) -> pd.DataF
 
     # Which students match the selected sections?
     mask = _df["SectionsList"].apply(
-        lambda lst: bool(set(map(lambda x: str(x).strip(), (lst or []))).intersection(sel))
+        lambda lst: isinstance(lst, list) and bool({str(x).strip() for x in lst}.intersection(sel))
     )
     out = _df.loc[mask].copy()
 
@@ -898,6 +898,17 @@ if sections_up is not None:
         sec["__sid"] = sid_norm_series(sec["__sid"])
         sec["__section"] = sec["__section"].astype(str).str.strip()
 
+        # Canonicalize section codes to digit-only strings (handles 201.0, "Section 201", etc.)
+        sec["__section"] = (
+            sec["__section"]
+              .str.replace(r"\.0$", "", regex=True)
+              .str.extract(r"(\d+)", expand=False)
+              .fillna("")
+              .str.lstrip("0")
+        )
+        sec = sec[sec["__section"] != ""]
+
+
         # Aggregate to a per-student list of sections
         agg = (sec[sec["__section"]!=""]
                .groupby("__sid")["__section"]
@@ -912,12 +923,15 @@ if sections_up is not None:
         df["Sections"] = merged_sections["__sections"].apply(lambda x: ", ".join(x) if isinstance(x, list) else "")
 
         # Sidebar filters: Room + Section (Room expands into Section codes)
-        all_sections = sorted({sec for lst in df["SectionsList"].dropna() for sec in lst})
+        all_sections = sorted(
+            {str(sec).strip() for lst in df["SectionsList"].dropna() if isinstance(lst, list) for sec in lst},
+            key=lambda x: int(x) if x.isdigit() else x,
+        )
         
         def _room_part(sec_code: str):
             s = str(sec_code).strip()
             # room = everything except last digit (period). Example: "201"->"20", "31"->"3"
-            if s.isdigit() and len(s) >= 2:
+            if s.isdigit() and len(s) >= 2 and s[-1] != "0":
                 return str(int(s[:-1]))  # normalize "03"->"3"
             return None
         
@@ -972,7 +986,7 @@ view = filter_by_grade_and_level(df, grades_filter, levels_filter, hide_lvl4)
 view = apply_section_filter(view, selected_sections)
 
 # If sorting by section, create a sort key based on the MATCHED section from selected_sections
-if sort_choice == "Section > Student" and selected_sections and "SectionsList" in view.columns:
+if sort_choice == "Section > Student" and selected_sections and "SectionsList" in view.columns and "_sort_section" not in view.columns:
     sel = set(str(s).strip() for s in selected_sections)
 
     def _matched_section_key(lst):
