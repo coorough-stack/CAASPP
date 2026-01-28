@@ -225,11 +225,41 @@ def detect_section_columns(df: pd.DataFrame) -> dict:
 
 
 def apply_section_filter(_df: pd.DataFrame, selected_sections: list) -> pd.DataFrame:
-    """Keep rows where student's SectionsList intersects selected_sections."""
-    if not selected_sections or "SectionsList" not in _df.columns:
+    """
+    Keep rows where student's SectionsList intersects selected_sections.
+    Also adds a numeric _sort_section key based on the MATCHED section(s),
+    so sorting by section stays aligned with the active room/section filter.
+    """
+    if "SectionsList" not in _df.columns:
         return _df
-    sel = set(map(str, selected_sections))
-    return _df[_df["SectionsList"].apply(lambda lst: bool(set(map(str, (lst or []))).intersection(sel)))]
+    if not selected_sections:
+        return _df
+
+    sel = set(str(s).strip() for s in selected_sections)
+
+    # Which students match the selected sections?
+    mask = _df["SectionsList"].apply(
+        lambda lst: bool(set(map(lambda x: str(x).strip(), (lst or []))).intersection(sel))
+    )
+    out = _df.loc[mask].copy()
+
+    # Compute sort key from matched sections only (not all sections)
+    def _matched_section_key(lst):
+        if not isinstance(lst, list):
+            return 999999
+        nums = []
+        for x in lst:
+            sx = str(x).strip()
+            if sx in sel:
+                # extract digits robustly (handles "201", "201 ", "Section 201", "['201', '202']" etc.)
+                found = re.findall(r"\d+", sx)
+                if found:
+                    nums.append(int(found[0]))
+        return min(nums) if nums else 999999
+
+    out["_sort_section"] = out["SectionsList"].apply(_matched_section_key)
+    return out
+
 
 # ---- Design constants ----
 ISR_COLORS = {1: "#F35031", 2: "#F2C94F", 3: "#5AC923", 4: "#00B4EB"}
@@ -416,27 +446,26 @@ def sort_df(df: pd.DataFrame, how: str) -> pd.DataFrame:
         prox = df["PtsToNextLevel"].fillna(9999).replace(0, 9999)
         return df.assign(_prox=prox).sort_values(["_prox", STUDENT_NAME_COL], kind="stable").drop(columns="_prox")
     if how == "Section > Student":
+        # Prefer the matched sort key created by apply_section_filter
+        if "_sort_section" in df.columns:
+            return df.sort_values(["_sort_section", STUDENT_NAME_COL], kind="stable").drop(columns="_sort_section")
+    
+        # Fallback if no filter is applied: sort by min numeric section overall
         def _min_section_num(val):
-            if isinstance(val, list):
-                nums = [int(str(x).strip()) for x in val if str(x).strip().isdigit()]
-                return min(nums) if nums else 999999
-
-            s = str(val).strip()
-            if not s:
-                return 999999
-            parts = [p.strip() for p in s.split(",")]
-            nums = [int(p) for p in parts if p.isdigit()]
+            found = re.findall(r"\d+", str(val))
+            nums = [int(x) for x in found] if found else []
             return min(nums) if nums else 999999
-
+    
         if "SectionsList" in df.columns:
-            key = df["SectionsList"].apply(_min_section_num)
+            key = df["SectionsList"].apply(lambda lst: min([int(x) for x in re.findall(r"\d+", str(lst))], default=999999))
             return df.assign(_secnum=key).sort_values(["_secnum", STUDENT_NAME_COL], kind="stable").drop(columns="_secnum")
-
+    
         if "Sections" in df.columns:
             key = df["Sections"].apply(_min_section_num)
             return df.assign(_secnum=key).sort_values(["_secnum", STUDENT_NAME_COL], kind="stable").drop(columns="_secnum")
-
+    
         return df.sort_values([STUDENT_NAME_COL], kind="stable")
+
 
 
 # ---- Column detection & ID normalization ----
