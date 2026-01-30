@@ -448,14 +448,87 @@ def sort_df(df: pd.DataFrame, how: str) -> pd.DataFrame:
         prox = df["PtsToNextLevel"].fillna(9999).replace(0, 9999)
         return df.assign(_prox=prox).sort_values(["_prox", STUDENT_NAME_COL], kind="stable").drop(columns="_prox")
     if how == "Section > Student":
+        # 1) If a matched section key exists (from filtering), use it.
         if "_sort_section" in df.columns:
-            return df.sort_values(["_sort_section", STUDENT_NAME_COL], kind="stable").drop(columns="_sort_section")
-        if "Sections" in df.columns:
-            return df.sort_values(["Sections", STUDENT_NAME_COL], kind="stable")
+            return (
+                df.sort_values(["_sort_section", STUDENT_NAME_COL], kind="stable")
+                  .drop(columns="_sort_section")
+            )
+
+        # 2) Otherwise, compute a numeric sort key from the attached sections
+        #    so whole-school runs can still be grouped by class.
+        #    We prefer "class-style" sections: room*10 + period, where period is last digit (1..8)
+        #    and room is a reasonable classroom number (1..50).
+        PERIOD_MIN, PERIOD_MAX = 1, 8
+        ROOM_MIN, ROOM_MAX = 1, 50
+
+        def _to_int(x):
+            s = str(x).strip()
+            if s.isdigit():
+                return int(s)
+            # handles 201.0 etc
+            if re.fullmatch(r"\d+\.0", s):
+                try:
+                    return int(float(s))
+                except Exception:
+                    return None
+            m = re.search(r"\d+", s)
+            return int(m.group()) if m else None
+
+        def _best_section_num_from_list(lst):
+            if not isinstance(lst, list):
+                return 999999
+            nums = []
+            for v in lst:
+                n = _to_int(v)
+                if n is not None:
+                    nums.append(n)
+            if not nums:
+                return 999999
+
+            # prefer room/period style codes
+            candidates = []
+            for n in nums:
+                period = n % 10
+                room = n // 10
+                if ROOM_MIN <= room <= ROOM_MAX and PERIOD_MIN <= period <= PERIOD_MAX:
+                    candidates.append(n)
+
+            return min(candidates) if candidates else min(nums)
+
+        def _best_section_num_from_string(s):
+            found = [_to_int(x) for x in re.findall(r"\d+\.0|\d+", str(s))]
+            nums = [n for n in found if n is not None]
+            if not nums:
+                return 999999
+
+            candidates = []
+            for n in nums:
+                period = n % 10
+                room = n // 10
+                if ROOM_MIN <= room <= ROOM_MAX and PERIOD_MIN <= period <= PERIOD_MAX:
+                    candidates.append(n)
+
+            return min(candidates) if candidates else min(nums)
+
         if "SectionsList" in df.columns:
-            tmp = df["SectionsList"].apply(lambda x: ", ".join(x) if isinstance(x, list) else "")
-            return df.assign(_sec=tmp).sort_values(["_sec", STUDENT_NAME_COL], kind="stable").drop(columns="_sec")
+            key = df["SectionsList"].apply(_best_section_num_from_list)
+            return (
+                df.assign(_secnum=key)
+                  .sort_values(["_secnum", STUDENT_NAME_COL], kind="stable")
+                  .drop(columns="_secnum")
+            )
+
+        if "Sections" in df.columns:
+            key = df["Sections"].apply(_best_section_num_from_string)
+            return (
+                df.assign(_secnum=key)
+                  .sort_values(["_secnum", STUDENT_NAME_COL], kind="stable")
+                  .drop(columns="_secnum")
+            )
+
         return df.sort_values([STUDENT_NAME_COL], kind="stable")
+
 
 
 
