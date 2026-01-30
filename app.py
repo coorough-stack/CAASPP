@@ -946,6 +946,42 @@ sections_up = st.file_uploader("Upload sections CSV (each row = a student in a s
 # Defaults (columns will appear later even if no file)
 selected_sections = []
 
+# Optional: list of section codes that belong to the CURRENT subject (Math or ELA),
+# used for whole-school "Section > Student" sorting when students have multiple sections.
+subject_sections_up = st.file_uploader(
+    f"Optional: Upload {subject} section list for sorting (one column of section codes)",
+    type=["csv"],
+    key="subject_sections_sort_v1",
+)
+subject_sort_sections = None
+
+if subject_sections_up is not None:
+    try:
+        subj_sec_df = pd.read_csv(subject_sections_up, dtype="string")
+    except Exception:
+        subject_sections_up.seek(0)
+        subj_sec_df = pd.read_csv(subject_sections_up, dtype="string", encoding="latin-1")
+
+    subj_sec_df.columns = [c.strip().replace("\ufeff", "") for c in subj_sec_df.columns]
+
+    # pick the best column automatically (or just use first column)
+    sec_col_guess = None
+    for c in subj_sec_df.columns:
+        if "section" in c.lower():
+            sec_col_guess = c
+            break
+    sec_col_guess = sec_col_guess or subj_sec_df.columns[0]
+
+    codes = []
+    for v in subj_sec_df[sec_col_guess].tolist():
+        s = str(v).strip()
+        found = re.findall(r"\d+", s)
+        if found:
+            codes.append(str(int(found[0])))
+
+    subject_sort_sections = set(codes)
+    st.success(f"Loaded {len(subject_sort_sections)} {subject} sections for sorting.")
+
 if sections_up is not None:
     try:
         sections_df = pd.read_csv(sections_up, dtype={"Student ID":"string"})
@@ -969,7 +1005,13 @@ if sections_up is not None:
         # Normalize IDs and clean section codes as strings
         sec = sections_df[[sid_sections, section_col]].rename(columns={sid_sections:"__sid", section_col:"__section"})
         sec["__sid"] = sid_norm_series(sec["__sid"])
-        sec["__section"] = sec["__section"].astype(str).str.strip()
+
+def _norm_section_code(v):
+    s = str(v).strip()
+    found = re.findall(r"\d+", s)
+    return str(int(found[0])) if found else s  # keep non-numeric as-is
+
+sec["__section"] = sec["__section"].apply(_norm_section_code)
 
         # Canonicalize section codes to digit-only strings (handles 201.0, "Section 201", etc.)
         sec["__section"] = (
@@ -1102,23 +1144,32 @@ df = attach_latest_and_percentiles(df, subject)   # recompute percentiles/levels
 view = filter_by_grade_and_level(df, grades_filter, levels_filter, hide_lvl4)
 view = apply_section_filter(view, selected_sections)
 
-# If sorting by section, create a sort key based on the MATCHED section from selected_sections
-if sort_choice == "Section > Student" and selected_sections and "SectionsList" in view.columns and "_sort_section" not in view.columns:
-    sel = set(str(s).strip() for s in selected_sections)
+# apply_section_filter already adds _sort_section when selected_sections is active.
+# For whole-school sorting (no active room/section filter), optionally sort by SUBJECT section only.
+if (
+    sort_choice == "Section > Student"
+    and "SectionsList" in view.columns
+    and "_sort_section" not in view.columns
+    and subject_sort_sections
+):
+    subj_set = set(subject_sort_sections)
 
-    def _matched_section_key(lst):
+    def _subject_section_key(lst):
         if not isinstance(lst, list):
             return 999999
-        nums = [int(str(x).strip()) for x in lst
-                if str(x).strip().isdigit() and str(x).strip() in sel]
+        nums = []
+        for x in lst:
+            sx = str(x).strip()
+            found = re.findall(r"\d+", sx)
+            if found:
+                code = str(int(found[0]))
+                if code in subj_set:
+                    nums.append(int(code))
         return min(nums) if nums else 999999
 
-    view["_sort_section"] = view["SectionsList"].apply(_matched_section_key)
+    view = view.copy()
+    view["_sort_section"] = view["SectionsList"].apply(_subject_section_key)
 
-view = sort_df(view, sort_choice)
-
-if pick_mode == "First N only":
-    view = view.head(int(first_n))
 
 
 # Reflection questions page
