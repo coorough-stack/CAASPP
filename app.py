@@ -990,413 +990,413 @@ if sections_up is not None:
         sections_df = pd.read_csv(sections_up, dtype={"Student ID":"string"}, encoding="latin-1")
 
     sc = detect_section_columns(sections_df)
-sec_cols = [None] + sections_df.columns.tolist()
-def _idx(v):
-try: return sec_cols.index(v)
-except Exception: return 0
-
-s1, s2 = st.columns(2)
-with s1:
-sid_sections = st.selectbox("Student ID column (sections)", options=sec_cols, index=_idx(sc.get("student_id")), key="sections_sid_col_v1")
-with s2:
-section_col  = st.selectbox("Section column", options=sec_cols, index=_idx(sc.get("section")), key="sections_section_col_v1")
-
-if sid_sections and section_col:
-# Normalize IDs and clean section codes as strings
-sec = sections_df[[sid_sections, section_col]].rename(columns={sid_sections:"__sid", section_col:"__section"})
-sec["__sid"] = sid_norm_series(sec["__sid"])
-
-def _norm_section_code(v):
-s = str(v).strip()
-found = re.findall(r"\d+", s)
-return str(int(found[0])) if found else s  # keep non-numeric as-is
-
-sec["__section"] = sec["__section"].apply(_norm_section_code)
-
-        # Canonicalize section codes to digit-only strings (handles 201.0, "Section 201", etc.)
-        sec["__section"] = (
-            sec["__section"]
-              .str.replace(r"\.0$", "", regex=True)
-              .str.extract(r"(\d+)", expand=False)
-              .fillna("")
-              .str.lstrip("0")
-        )
-        sec = sec[sec["__section"] != ""]
-
-
-        # Aggregate to a per-student list of sections
-        agg = (sec[sec["__section"]!=""]
-               .groupby("__sid")["__section"]
-               .apply(lambda s: sorted(set(s.tolist())))
-               .reset_index()
-               .rename(columns={"__section":"__sections"}))
-
-        # Attach to df (one row per student), storing both list and a printable string
-        left_ids = pd.DataFrame({"__sid": sid_norm_series(df[sid_col])})
-        merged_sections = left_ids.merge(agg, on="__sid", how="left")
-        df["SectionsList"] = merged_sections["__sections"]
-        df["Sections"] = merged_sections["__sections"].apply(lambda x: ", ".join(x) if isinstance(x, list) else "")
-
-        # Sidebar filters: Room + Section (Room expands into Section codes)
-        all_sections = sorted(
-            {str(sec).strip() for lst in df["SectionsList"].dropna() if isinstance(lst, list) for sec in lst},
-            key=lambda x: int(x) if x.isdigit() else x,
-        )
-        
-        def _room_part(sec_code: str):
-            s = str(sec_code).strip()
-            # room = everything except last digit (period). Example: "201"->"20", "31"->"3"
-            if s.isdigit() and len(s) >= 2 and s[-1] != "0":
-                return str(int(s[:-1]))  # normalize "03"->"3"
-            return None
-        
-        room_options = sorted({rp for rp in (_room_part(x) for x in all_sections) if rp is not None}, key=lambda x: int(x))
-
-        # Map room -> teacher last name for display in the Room filter
-        ROOM_TO_TEACHER = {
-            "23": "Allen",
-            "31": "Bennett",
-            "18": "Cabral",
-            "9":  "Colligan",
-            "20": "Coorough",
-            "21": "Dickerson",
-            "30": "Faver",
-            "6":  "Feller",
-            "35": "Garth",
-            "12": "Hobbs",
-            "17": "Kniffel",
-            "22": "Landeros",
-            "28": "Mclane",
-            "3":  "Medina",
-            "16": "Mendes",
-            "27": "Ovitz",
-            "11": "Quiles",
-            "25": "Ramirez",
-            "1":  "Ramirez-Carrillo",
-            "24": "Rolls",
-            "2":  "Romero",
-            "10": "Romo",
-            "4":  "Salas",
-            "29": "Sanchez-Pano",
-            "5":  "Schafer",
-            "13": "Starkey",
-            "19": "Watson",
-        }
-
-        def _room_label(r: str) -> str:
-            r = str(r).strip()
-            t = ROOM_TO_TEACHER.get(r, "")
-            return f"{r} - {t.lower()}" if t else r
-
-        room_labels = [_room_label(r) for r in room_options]
-        label_to_room = {_room_label(r): str(r).strip() for r in room_options}
-
-        
-        selected_room_labels = st.sidebar.multiselect(
-            "Filter by Room (e.g. 20 → 201,202… ; 3 → 31,32…)",
-            options=room_labels,
-            default=[],
-            key="filter_rooms_v2",
-        )
-
-        # Convert labels back to the actual room numbers for filtering logic
-        selected_rooms = [label_to_room[lbl] for lbl in selected_room_labels]
-
-        
-        selected_sections_manual = st.sidebar.multiselect(
-            "Filter by Section",
-            options=all_sections,
-            default=[],
-            key="filter_sections_v1",
-        )
-        
-        # Expand selected rooms into their sections, then UNION with manually selected sections
-        expanded_from_rooms = set()
-        if selected_rooms:
-            room_sel = set(map(str, selected_rooms))
-            for sec_code in all_sections:
-                rp = _room_part(sec_code)
-                if rp in room_sel:
-                    expanded_from_rooms.add(str(sec_code).strip())
-        
-        final_sections = set(str(x).strip() for x in selected_sections_manual) | expanded_from_rooms
-        selected_sections = sorted(final_sections, key=lambda x: int(x) if str(x).isdigit() else x)
-
-        
-        # Diagnostics
-        matched = df["Sections"].ne("").sum()
-        st.success(f"Sections attached to {matched}/{len(df)} students.")
-        with st.expander("Preview sections (first 20)"):
-            name_col = STUDENT_NAME_COL if STUDENT_NAME_COL in df.columns else (df.columns[0] if len(df.columns)>0 else "Student")
-            show = [c for c in [sid_col, name_col, "Sections"] if c in df.columns or c in ["Sections"]]
-            st.dataframe(df.loc[:, show].head(20))
-    else:
-        st.info("Select the Student ID and Section columns to link sections.")
-
-# Augment for subject
-# Augment + normalize grades, then re-augment so percentiles/levels use clean grades
-df = attach_latest_and_percentiles(df, subject)   # creates LatestGradeTested, etc.
-df = normalize_current_grade(df, "Current Grade") # force 3..8
-df = attach_latest_and_percentiles(df, subject)   # recompute percentiles/levels with clean grade
-
-
-# Filters / sort
-view = filter_by_grade_and_level(df, grades_filter, levels_filter, hide_lvl4)
-view = apply_section_filter(view, selected_sections)
-
-# apply_section_filter already adds _sort_section when selected_sections is active.
-# For whole-school sorting (no active room/section filter), optionally sort by SUBJECT section only.
-if (
-    sort_choice == "Section > Student"
-    and "SectionsList" in view.columns
-    and "_sort_section" not in view.columns
-    and subject_sort_sections
-):
-    subj_set = set(subject_sort_sections)
-
-    def _subject_section_key(lst):
-        if not isinstance(lst, list):
-            return 999999
-        nums = []
-        for x in lst:
-            sx = str(x).strip()
-            found = re.findall(r"\d+", sx)
-            if found:
-                code = str(int(found[0]))
-                if code in subj_set:
-                    nums.append(int(code))
-        return min(nums) if nums else 999999
-
-    view = view.copy()
-    view["_sort_section"] = view["SectionsList"].apply(_subject_section_key)
-
-
-
-# Reflection questions page
-def add_reflection_page(pdf, *, student_name: str, subject: str, dpi: int = 160):
-    """Append a second page (back side) with reflection questions. PDF-only."""
-    fig = plt.figure(figsize=(8.5, 11), dpi=dpi, constrained_layout=False)
-    fig.subplots_adjust(left=0.085, right=0.99, top=0.975, bottom=0.06)
-
-    # Single full-page axis for clean layout
-    ax = fig.add_axes([0.085, 0.06, 0.99 - 0.085, 0.975 - 0.06])
-    ax.axis("off")
-
-    # Header
-    ax.text(0.0, 0.98, "Student Reflection & Goals",
-            transform=ax.transAxes, ha="left", va="top",
-            fontsize=18, fontweight="bold")
-    ax.text(0.0, 0.94, f"Student: {student_name}",
-            transform=ax.transAxes, ha="left", va="top", fontsize=12)
-    ax.text(0.62, 0.94, "Date: ________________",
-            transform=ax.transAxes, ha="left", va="top", fontsize=12)
-    ax.text(0.0, 0.91, f"Subject: {subject}",
-            transform=ax.transAxes, ha="left", va="top", fontsize=12)
-
-    ax.hlines(0.895, 0.0, 1.0, transform=ax.transAxes, linewidth=0.8, alpha=0.6)
-
-    # Question block helper
-    def _question(num: int, text: str, y: float, n_lines: int) -> float:
-        ax.text(0.0, y, f"{num}. {text}",
+    sec_cols = [None] + sections_df.columns.tolist()
+    def _idx(v):
+    try: return sec_cols.index(v)
+    except Exception: return 0
+    
+    s1, s2 = st.columns(2)
+    with s1:
+    sid_sections = st.selectbox("Student ID column (sections)", options=sec_cols, index=_idx(sc.get("student_id")), key="sections_sid_col_v1")
+    with s2:
+    section_col  = st.selectbox("Section column", options=sec_cols, index=_idx(sc.get("section")), key="sections_section_col_v1")
+    
+    if sid_sections and section_col:
+    # Normalize IDs and clean section codes as strings
+    sec = sections_df[[sid_sections, section_col]].rename(columns={sid_sections:"__sid", section_col:"__section"})
+    sec["__sid"] = sid_norm_series(sec["__sid"])
+    
+    def _norm_section_code(v):
+    s = str(v).strip()
+    found = re.findall(r"\d+", s)
+    return str(int(found[0])) if found else s  # keep non-numeric as-is
+    
+    sec["__section"] = sec["__section"].apply(_norm_section_code)
+    
+            # Canonicalize section codes to digit-only strings (handles 201.0, "Section 201", etc.)
+            sec["__section"] = (
+                sec["__section"]
+                  .str.replace(r"\.0$", "", regex=True)
+                  .str.extract(r"(\d+)", expand=False)
+                  .fillna("")
+                  .str.lstrip("0")
+            )
+            sec = sec[sec["__section"] != ""]
+    
+    
+            # Aggregate to a per-student list of sections
+            agg = (sec[sec["__section"]!=""]
+                   .groupby("__sid")["__section"]
+                   .apply(lambda s: sorted(set(s.tolist())))
+                   .reset_index()
+                   .rename(columns={"__section":"__sections"}))
+    
+            # Attach to df (one row per student), storing both list and a printable string
+            left_ids = pd.DataFrame({"__sid": sid_norm_series(df[sid_col])})
+            merged_sections = left_ids.merge(agg, on="__sid", how="left")
+            df["SectionsList"] = merged_sections["__sections"]
+            df["Sections"] = merged_sections["__sections"].apply(lambda x: ", ".join(x) if isinstance(x, list) else "")
+    
+            # Sidebar filters: Room + Section (Room expands into Section codes)
+            all_sections = sorted(
+                {str(sec).strip() for lst in df["SectionsList"].dropna() if isinstance(lst, list) for sec in lst},
+                key=lambda x: int(x) if x.isdigit() else x,
+            )
+            
+            def _room_part(sec_code: str):
+                s = str(sec_code).strip()
+                # room = everything except last digit (period). Example: "201"->"20", "31"->"3"
+                if s.isdigit() and len(s) >= 2 and s[-1] != "0":
+                    return str(int(s[:-1]))  # normalize "03"->"3"
+                return None
+            
+            room_options = sorted({rp for rp in (_room_part(x) for x in all_sections) if rp is not None}, key=lambda x: int(x))
+    
+            # Map room -> teacher last name for display in the Room filter
+            ROOM_TO_TEACHER = {
+                "23": "Allen",
+                "31": "Bennett",
+                "18": "Cabral",
+                "9":  "Colligan",
+                "20": "Coorough",
+                "21": "Dickerson",
+                "30": "Faver",
+                "6":  "Feller",
+                "35": "Garth",
+                "12": "Hobbs",
+                "17": "Kniffel",
+                "22": "Landeros",
+                "28": "Mclane",
+                "3":  "Medina",
+                "16": "Mendes",
+                "27": "Ovitz",
+                "11": "Quiles",
+                "25": "Ramirez",
+                "1":  "Ramirez-Carrillo",
+                "24": "Rolls",
+                "2":  "Romero",
+                "10": "Romo",
+                "4":  "Salas",
+                "29": "Sanchez-Pano",
+                "5":  "Schafer",
+                "13": "Starkey",
+                "19": "Watson",
+            }
+    
+            def _room_label(r: str) -> str:
+                r = str(r).strip()
+                t = ROOM_TO_TEACHER.get(r, "")
+                return f"{r} - {t.lower()}" if t else r
+    
+            room_labels = [_room_label(r) for r in room_options]
+            label_to_room = {_room_label(r): str(r).strip() for r in room_options}
+    
+            
+            selected_room_labels = st.sidebar.multiselect(
+                "Filter by Room (e.g. 20 → 201,202… ; 3 → 31,32…)",
+                options=room_labels,
+                default=[],
+                key="filter_rooms_v2",
+            )
+    
+            # Convert labels back to the actual room numbers for filtering logic
+            selected_rooms = [label_to_room[lbl] for lbl in selected_room_labels]
+    
+            
+            selected_sections_manual = st.sidebar.multiselect(
+                "Filter by Section",
+                options=all_sections,
+                default=[],
+                key="filter_sections_v1",
+            )
+            
+            # Expand selected rooms into their sections, then UNION with manually selected sections
+            expanded_from_rooms = set()
+            if selected_rooms:
+                room_sel = set(map(str, selected_rooms))
+                for sec_code in all_sections:
+                    rp = _room_part(sec_code)
+                    if rp in room_sel:
+                        expanded_from_rooms.add(str(sec_code).strip())
+            
+            final_sections = set(str(x).strip() for x in selected_sections_manual) | expanded_from_rooms
+            selected_sections = sorted(final_sections, key=lambda x: int(x) if str(x).isdigit() else x)
+    
+            
+            # Diagnostics
+            matched = df["Sections"].ne("").sum()
+            st.success(f"Sections attached to {matched}/{len(df)} students.")
+            with st.expander("Preview sections (first 20)"):
+                name_col = STUDENT_NAME_COL if STUDENT_NAME_COL in df.columns else (df.columns[0] if len(df.columns)>0 else "Student")
+                show = [c for c in [sid_col, name_col, "Sections"] if c in df.columns or c in ["Sections"]]
+                st.dataframe(df.loc[:, show].head(20))
+        else:
+            st.info("Select the Student ID and Section columns to link sections.")
+    
+    # Augment for subject
+    # Augment + normalize grades, then re-augment so percentiles/levels use clean grades
+    df = attach_latest_and_percentiles(df, subject)   # creates LatestGradeTested, etc.
+    df = normalize_current_grade(df, "Current Grade") # force 3..8
+    df = attach_latest_and_percentiles(df, subject)   # recompute percentiles/levels with clean grade
+    
+    
+    # Filters / sort
+    view = filter_by_grade_and_level(df, grades_filter, levels_filter, hide_lvl4)
+    view = apply_section_filter(view, selected_sections)
+    
+    # apply_section_filter already adds _sort_section when selected_sections is active.
+    # For whole-school sorting (no active room/section filter), optionally sort by SUBJECT section only.
+    if (
+        sort_choice == "Section > Student"
+        and "SectionsList" in view.columns
+        and "_sort_section" not in view.columns
+        and subject_sort_sections
+    ):
+        subj_set = set(subject_sort_sections)
+    
+        def _subject_section_key(lst):
+            if not isinstance(lst, list):
+                return 999999
+            nums = []
+            for x in lst:
+                sx = str(x).strip()
+                found = re.findall(r"\d+", sx)
+                if found:
+                    code = str(int(found[0]))
+                    if code in subj_set:
+                        nums.append(int(code))
+            return min(nums) if nums else 999999
+    
+        view = view.copy()
+        view["_sort_section"] = view["SectionsList"].apply(_subject_section_key)
+    
+    
+    
+    # Reflection questions page
+    def add_reflection_page(pdf, *, student_name: str, subject: str, dpi: int = 160):
+        """Append a second page (back side) with reflection questions. PDF-only."""
+        fig = plt.figure(figsize=(8.5, 11), dpi=dpi, constrained_layout=False)
+        fig.subplots_adjust(left=0.085, right=0.99, top=0.975, bottom=0.06)
+    
+        # Single full-page axis for clean layout
+        ax = fig.add_axes([0.085, 0.06, 0.99 - 0.085, 0.975 - 0.06])
+        ax.axis("off")
+    
+        # Header
+        ax.text(0.0, 0.98, "Student Reflection & Goals",
                 transform=ax.transAxes, ha="left", va="top",
-                fontsize=13, fontweight="bold")
-        y -= 0.055  # space after question
-
-        line_gap = 0.045
-        for i in range(n_lines):
-            yy = y - i * line_gap
-            ax.hlines(yy, 0.0, 1.0, transform=ax.transAxes, linewidth=0.8, alpha=0.7)
-
-        # extra space after answer lines
-        return y - n_lines * line_gap - 0.00
-
-    # Questions (tweak n_lines if you want more/less writing space)
-    y = 0.87
-    y = _question(1, "What is your goal?", y, n_lines=5)
-    y = _question(2, "What will you do to reach your goal?", y, n_lines=7)
-    y = _question(3, "How can the teacher support you in reaching your goal?", y, n_lines=5)
-
-    pdf.savefig(fig)
-    plt.close(fig)
-
-
-# ---------- Export: PDF (one page per student) ----------
-st.markdown("### Export")
-def build_pdf_bytes(rows: pd.DataFrame, subject: str, title: str) -> bytes:
-    buf = io.BytesIO()
-    with PdfPages(buf) as pdf:
-        for _, row in rows.iterrows():
-            fig = plt.figure(figsize=(8.5, 11), dpi=160, constrained_layout=False)
-            # 22 rows grid
-            gs = fig.add_gridspec(22, 6)
-            fig.subplots_adjust(left=0.085, right=0.99, top=0.975, bottom=0.06, hspace=0.28)
-
-            ax_title = fig.add_subplot(gs[0:1, :])
-            ax_meta  = fig.add_subplot(gs[1:3, :])
-            ax_trend = fig.add_subplot(gs[3:13, :])
-            ax_key   = fig.add_subplot(gs[13:15, :])
-            ax_growth = fig.add_subplot(gs[15:17, :])  # shrink growth 1 row
-            ax_body   = fig.add_subplot(gs[17:, :])    # body gets more rows (fixes overlap)
-
-
-            name     = row.get(STUDENT_NAME_COL, "Student")
-            latest   = row.get("LatestScore", np.nan)
-            lvl      = int(row.get("LatestLevel", 0) or 0)
-            pts_next = row.get("PtsToNextLevel", np.nan)
-            pct_text = row.get("SchoolPercentileOrdinal", "")
-            cg       = row.get(CURRENT_GRADE_COL, "")
-            tested   = int(row.get("LatestGradeTested", cg if pd.notna(cg) else 8) or 0)
-
-            # Title + name
-            ax_title.text(0.0, 0.80, f"{title}", ha="left", va="center",
-                          fontsize=18, weight="bold", transform=ax_title.transAxes)
-            ax_title.text(0.0, 0.18, f"{name}", ha="left", va="center",
-                          fontsize=16, weight="bold", transform=ax_title.transAxes)
-            ax_title.axis("off")
-
-            # Meta row with pill + two lines
-            lvl_text = f"Level {lvl} ({['','Not Met','Nearly Met','Met','Exceeded'][lvl] if lvl in [1,2,3,4] else '—'})"
-            pill_color = ISR_COLORS.get(lvl, "#DDDDDD")
-            ax_meta.text(
-                0.0, 0.94, lvl_text, transform=ax_meta.transAxes,
-                ha="left", va="center", fontsize=10.5,
-                bbox=dict(
-                    boxstyle="round,pad=0.2,rounding_size=0.2",
-                    facecolor=pill_color, edgecolor="black", linewidth=0.8, alpha=0.95
-                ),
-            )
-            ax_meta.text(
-                0.0, 0.62, f"Current Grade: {cg}  |  Latest Tested: Grade {tested}",
-                transform=ax_meta.transAxes, ha="left", va="center", fontsize=10
-            )
-            pts_txt = (
-                f"{int(pts_next)} pts to next level" if (pd.notna(pts_next) and lvl < 4)
-                else "at top level" if lvl == 4 else "—"
-            )
-            latest_score = "" if pd.isna(latest) else int(round(latest))
-            ax_meta.text(
-                0.0, 0.32,
-                f"Latest Score: {latest_score}  |  {pts_txt}  |  School Percentile: {pct_text}",
-                transform=ax_meta.transAxes, ha="left", va="center", fontsize=10
-            )
-            ax_meta.axis('off')
-
-            # Trend chart (side padding)
-            build_trend_figure(row, subject, ax=ax_trend)
-            pt = ax_trend.get_position()
-            pad_x = 0.012
-            ax_trend.set_position([pt.x0 + pad_x, pt.y0, pt.width - 2*pad_x, pt.height])
-            ax_trend.tick_params(axis="y", pad=2)
-
-            # ↓ Move the “Grade Tested” label DOWN (larger = farther below the axis)
-            ax_trend.set_xlabel("Grade Tested", labelpad=2)   # try 10–16 to taste
-
-            # Level key
-            draw_level_key(ax_key, subject, tested if tested else (cg or 6))
-            posk = ax_key.get_position()
-            ax_key.set_position([posk.x0, posk.y0 - 0.020, posk.width, posk.height])
-
-            # Growth chart (side padding + slight up)
-            build_growth_figure(row, subject, ax=ax_growth)
-            pos = ax_growth.get_position()
-            bump_down = 0.015   # try 0.010–0.025
-            ax_growth.set_position([pos.x0 + 0.012, pos.y0 - bump_down, pos.width - 2*0.012, pos.height])
-
-           # Body text (safe, line-by-line)
-            blurb = what_this_means(level=lvl, subject=subject, percentile_text=pct_text or "—")
-            yby   = year_by_year_lines(row, subject)
-            draw_bottom_text(ax_body, blurb, yby, fontsize=11)
-
-
-            pdf.savefig(fig)
-            plt.close(fig)
-
-            # Page 2 (back side): reflection questions (PDF-only)
-            add_reflection_page(pdf, student_name=str(name), subject=subject, dpi=160)
-    return buf.getvalue()
-
-def what_this_means(level: int, subject: str, percentile_text: str) -> str:
-    if subject == "Math":
-        msgs = {
-            1: "You’re currently Level 1 (Not Met). We’ll build number sense, operations with fractions/decimals, and strategies for multi-step problems.",
-            2: "You’re currently Level 2 (Nearly Met). You’re close—focus on multi-step problem solving, precise computation, and explaining reasoning.",
-            3: f"You’re currently Level 3 (Met). That places you around the {percentile_text} in your grade at our school.",
-            4: f"You’re Level 4 (Exceeded). Excellent performance—keep pushing with enrichment tasks and deeper problem solving.",
-        }
-    else:
-        msgs = {
-            1: "You’re Level 1 (Not Met). We’ll work on reading complex texts, vocabulary, and citing evidence clearly.",
-            2: "You’re Level 2 (Nearly Met). Keep practicing text analysis, structure, and revision for clarity and precision.",
-            3: f"You’re currently Level 3 (Met). That places you around the {percentile_text} in your grade at our school.",
-            4: f"You’re Level 4 (Exceeded). Push into advanced texts and extended writing to keep growing.",
-        }
-    return msgs.get(level, "Once you have a score, we’ll add next steps here.")
-
-def year_by_year_lines(row: pd.Series, subject: str) -> List[str]:
-    lines = []
-    for g in SBAC_TESTED_GRADES:
-        col = f"Score_{g*10}"
-        if col in row.index and pd.notna(row[col]):
-            s = int(round(float(row[col])))
-            lvl = score_to_level(s, subject, g)
-            pts = points_to_next_level(s, subject, g)
-            nxt = "at top level" if lvl == 4 else f"{int(pts)} pts to next level"
-            lines.append(f"G{g}: {s} — Level {lvl} ({level_name(lvl)}), {nxt}")
-    return lines
-
-def strip_html(s: str) -> str:
-    import re
-    return re.sub('<[^<]+?>', '', s)
-
-if st.button("Build PDF of current selection"):
-    pdf_bytes = build_pdf_bytes(view, subject, f"{school_name} — {subject} CAASPP Test Scores")
-    st.download_button("Download PDF", data=pdf_bytes, file_name=f"{subject}_onepagers.pdf", mime="application/pdf")
-
-# ---------- Render in-app (matching screenshot structure) ----------
-for _, row in view.iterrows():
-    name = row.get(STUDENT_NAME_COL, "Student")
-    latest = row.get("LatestScore", np.nan)
-    lvl = int(row.get("LatestLevel", 0) or 0)
-    pts_next = row.get("PtsToNextLevel", np.nan)
-    pct_text = row.get("SchoolPercentileOrdinal", "")
-    cg = row.get(CURRENT_GRADE_COL, "")
-    tested = int(row.get("LatestGradeTested", cg if pd.notna(cg) else 8) or 0)
-
-    # Title + name
-    st.markdown(f"# {school_name} — {subject} CAASPP Test Scores")
-    st.markdown(f"## {name}")
-
-    # Three-line header
-    latest_score_txt = "" if pd.isna(latest) else int(round(latest))
-    pts_txt = ("at top level" if lvl == 4 else f"{int(pts_next)} pts to next level") if pd.notna(pts_next) else "—"
-
-    # Line 1: pill
-    st.markdown(
-        f'<div style="display:block; line-height:1; margin:2px 0 10px 0;">{level_pill_html(lvl)}</div>',
-        unsafe_allow_html=True,
-    )
-    # Line 2
-    st.markdown(f"**Current Grade:** {cg}  |  **Latest Tested:** Grade {tested}")
-    # Line 3
-    st.markdown(f"**Latest Score:** {latest_score_txt}  |  {pts_txt}  |  **School Percentile:** {pct_text}")
-
-    fig_trend = build_trend_figure(row, subject)
-    ax = fig_trend.axes[0]
-    ax.set_xlabel("Grade Tested", labelpad=12)   # keep your label move
-    st.pyplot(fig_trend, use_container_width=True)   # ← replace use_container_width
-    plt.close(fig_trend)                               # ← important: close the figure
+                fontsize=18, fontweight="bold")
+        ax.text(0.0, 0.94, f"Student: {student_name}",
+                transform=ax.transAxes, ha="left", va="top", fontsize=12)
+        ax.text(0.62, 0.94, "Date: ________________",
+                transform=ax.transAxes, ha="left", va="top", fontsize=12)
+        ax.text(0.0, 0.91, f"Subject: {subject}",
+                transform=ax.transAxes, ha="left", va="top", fontsize=12)
     
-    st.markdown(level_key_inline(subject, tested), unsafe_allow_html=True)
+        ax.hlines(0.895, 0.0, 1.0, transform=ax.transAxes, linewidth=0.8, alpha=0.6)
     
-    fig_growth = build_growth_figure(row, subject)
-    st.pyplot(fig_growth, use_container_width=True)    # ← replace use_container_width
-    plt.close(fig_growth)                              # ← important: close the figure
-
-
-    st.markdown("**What this means**")
-    st.write(what_this_means(lvl, subject, pct_text or "—"))
-    lines = year_by_year_lines(row, subject)
-    if lines:
-        st.markdown("**Year-by-Year Performance**")
-        st.markdown("\n".join([f"- {t}" for t in lines]))
-    st.divider()
+        # Question block helper
+        def _question(num: int, text: str, y: float, n_lines: int) -> float:
+            ax.text(0.0, y, f"{num}. {text}",
+                    transform=ax.transAxes, ha="left", va="top",
+                    fontsize=13, fontweight="bold")
+            y -= 0.055  # space after question
+    
+            line_gap = 0.045
+            for i in range(n_lines):
+                yy = y - i * line_gap
+                ax.hlines(yy, 0.0, 1.0, transform=ax.transAxes, linewidth=0.8, alpha=0.7)
+    
+            # extra space after answer lines
+            return y - n_lines * line_gap - 0.00
+    
+        # Questions (tweak n_lines if you want more/less writing space)
+        y = 0.87
+        y = _question(1, "What is your goal?", y, n_lines=5)
+        y = _question(2, "What will you do to reach your goal?", y, n_lines=7)
+        y = _question(3, "How can the teacher support you in reaching your goal?", y, n_lines=5)
+    
+        pdf.savefig(fig)
+        plt.close(fig)
+    
+    
+    # ---------- Export: PDF (one page per student) ----------
+    st.markdown("### Export")
+    def build_pdf_bytes(rows: pd.DataFrame, subject: str, title: str) -> bytes:
+        buf = io.BytesIO()
+        with PdfPages(buf) as pdf:
+            for _, row in rows.iterrows():
+                fig = plt.figure(figsize=(8.5, 11), dpi=160, constrained_layout=False)
+                # 22 rows grid
+                gs = fig.add_gridspec(22, 6)
+                fig.subplots_adjust(left=0.085, right=0.99, top=0.975, bottom=0.06, hspace=0.28)
+    
+                ax_title = fig.add_subplot(gs[0:1, :])
+                ax_meta  = fig.add_subplot(gs[1:3, :])
+                ax_trend = fig.add_subplot(gs[3:13, :])
+                ax_key   = fig.add_subplot(gs[13:15, :])
+                ax_growth = fig.add_subplot(gs[15:17, :])  # shrink growth 1 row
+                ax_body   = fig.add_subplot(gs[17:, :])    # body gets more rows (fixes overlap)
+    
+    
+                name     = row.get(STUDENT_NAME_COL, "Student")
+                latest   = row.get("LatestScore", np.nan)
+                lvl      = int(row.get("LatestLevel", 0) or 0)
+                pts_next = row.get("PtsToNextLevel", np.nan)
+                pct_text = row.get("SchoolPercentileOrdinal", "")
+                cg       = row.get(CURRENT_GRADE_COL, "")
+                tested   = int(row.get("LatestGradeTested", cg if pd.notna(cg) else 8) or 0)
+    
+                # Title + name
+                ax_title.text(0.0, 0.80, f"{title}", ha="left", va="center",
+                              fontsize=18, weight="bold", transform=ax_title.transAxes)
+                ax_title.text(0.0, 0.18, f"{name}", ha="left", va="center",
+                              fontsize=16, weight="bold", transform=ax_title.transAxes)
+                ax_title.axis("off")
+    
+                # Meta row with pill + two lines
+                lvl_text = f"Level {lvl} ({['','Not Met','Nearly Met','Met','Exceeded'][lvl] if lvl in [1,2,3,4] else '—'})"
+                pill_color = ISR_COLORS.get(lvl, "#DDDDDD")
+                ax_meta.text(
+                    0.0, 0.94, lvl_text, transform=ax_meta.transAxes,
+                    ha="left", va="center", fontsize=10.5,
+                    bbox=dict(
+                        boxstyle="round,pad=0.2,rounding_size=0.2",
+                        facecolor=pill_color, edgecolor="black", linewidth=0.8, alpha=0.95
+                    ),
+                )
+                ax_meta.text(
+                    0.0, 0.62, f"Current Grade: {cg}  |  Latest Tested: Grade {tested}",
+                    transform=ax_meta.transAxes, ha="left", va="center", fontsize=10
+                )
+                pts_txt = (
+                    f"{int(pts_next)} pts to next level" if (pd.notna(pts_next) and lvl < 4)
+                    else "at top level" if lvl == 4 else "—"
+                )
+                latest_score = "" if pd.isna(latest) else int(round(latest))
+                ax_meta.text(
+                    0.0, 0.32,
+                    f"Latest Score: {latest_score}  |  {pts_txt}  |  School Percentile: {pct_text}",
+                    transform=ax_meta.transAxes, ha="left", va="center", fontsize=10
+                )
+                ax_meta.axis('off')
+    
+                # Trend chart (side padding)
+                build_trend_figure(row, subject, ax=ax_trend)
+                pt = ax_trend.get_position()
+                pad_x = 0.012
+                ax_trend.set_position([pt.x0 + pad_x, pt.y0, pt.width - 2*pad_x, pt.height])
+                ax_trend.tick_params(axis="y", pad=2)
+    
+                # ↓ Move the “Grade Tested” label DOWN (larger = farther below the axis)
+                ax_trend.set_xlabel("Grade Tested", labelpad=2)   # try 10–16 to taste
+    
+                # Level key
+                draw_level_key(ax_key, subject, tested if tested else (cg or 6))
+                posk = ax_key.get_position()
+                ax_key.set_position([posk.x0, posk.y0 - 0.020, posk.width, posk.height])
+    
+                # Growth chart (side padding + slight up)
+                build_growth_figure(row, subject, ax=ax_growth)
+                pos = ax_growth.get_position()
+                bump_down = 0.015   # try 0.010–0.025
+                ax_growth.set_position([pos.x0 + 0.012, pos.y0 - bump_down, pos.width - 2*0.012, pos.height])
+    
+               # Body text (safe, line-by-line)
+                blurb = what_this_means(level=lvl, subject=subject, percentile_text=pct_text or "—")
+                yby   = year_by_year_lines(row, subject)
+                draw_bottom_text(ax_body, blurb, yby, fontsize=11)
+    
+    
+                pdf.savefig(fig)
+                plt.close(fig)
+    
+                # Page 2 (back side): reflection questions (PDF-only)
+                add_reflection_page(pdf, student_name=str(name), subject=subject, dpi=160)
+        return buf.getvalue()
+    
+    def what_this_means(level: int, subject: str, percentile_text: str) -> str:
+        if subject == "Math":
+            msgs = {
+                1: "You’re currently Level 1 (Not Met). We’ll build number sense, operations with fractions/decimals, and strategies for multi-step problems.",
+                2: "You’re currently Level 2 (Nearly Met). You’re close—focus on multi-step problem solving, precise computation, and explaining reasoning.",
+                3: f"You’re currently Level 3 (Met). That places you around the {percentile_text} in your grade at our school.",
+                4: f"You’re Level 4 (Exceeded). Excellent performance—keep pushing with enrichment tasks and deeper problem solving.",
+            }
+        else:
+            msgs = {
+                1: "You’re Level 1 (Not Met). We’ll work on reading complex texts, vocabulary, and citing evidence clearly.",
+                2: "You’re Level 2 (Nearly Met). Keep practicing text analysis, structure, and revision for clarity and precision.",
+                3: f"You’re currently Level 3 (Met). That places you around the {percentile_text} in your grade at our school.",
+                4: f"You’re Level 4 (Exceeded). Push into advanced texts and extended writing to keep growing.",
+            }
+        return msgs.get(level, "Once you have a score, we’ll add next steps here.")
+    
+    def year_by_year_lines(row: pd.Series, subject: str) -> List[str]:
+        lines = []
+        for g in SBAC_TESTED_GRADES:
+            col = f"Score_{g*10}"
+            if col in row.index and pd.notna(row[col]):
+                s = int(round(float(row[col])))
+                lvl = score_to_level(s, subject, g)
+                pts = points_to_next_level(s, subject, g)
+                nxt = "at top level" if lvl == 4 else f"{int(pts)} pts to next level"
+                lines.append(f"G{g}: {s} — Level {lvl} ({level_name(lvl)}), {nxt}")
+        return lines
+    
+    def strip_html(s: str) -> str:
+        import re
+        return re.sub('<[^<]+?>', '', s)
+    
+    if st.button("Build PDF of current selection"):
+        pdf_bytes = build_pdf_bytes(view, subject, f"{school_name} — {subject} CAASPP Test Scores")
+        st.download_button("Download PDF", data=pdf_bytes, file_name=f"{subject}_onepagers.pdf", mime="application/pdf")
+    
+    # ---------- Render in-app (matching screenshot structure) ----------
+    for _, row in view.iterrows():
+        name = row.get(STUDENT_NAME_COL, "Student")
+        latest = row.get("LatestScore", np.nan)
+        lvl = int(row.get("LatestLevel", 0) or 0)
+        pts_next = row.get("PtsToNextLevel", np.nan)
+        pct_text = row.get("SchoolPercentileOrdinal", "")
+        cg = row.get(CURRENT_GRADE_COL, "")
+        tested = int(row.get("LatestGradeTested", cg if pd.notna(cg) else 8) or 0)
+    
+        # Title + name
+        st.markdown(f"# {school_name} — {subject} CAASPP Test Scores")
+        st.markdown(f"## {name}")
+    
+        # Three-line header
+        latest_score_txt = "" if pd.isna(latest) else int(round(latest))
+        pts_txt = ("at top level" if lvl == 4 else f"{int(pts_next)} pts to next level") if pd.notna(pts_next) else "—"
+    
+        # Line 1: pill
+        st.markdown(
+            f'<div style="display:block; line-height:1; margin:2px 0 10px 0;">{level_pill_html(lvl)}</div>',
+            unsafe_allow_html=True,
+        )
+        # Line 2
+        st.markdown(f"**Current Grade:** {cg}  |  **Latest Tested:** Grade {tested}")
+        # Line 3
+        st.markdown(f"**Latest Score:** {latest_score_txt}  |  {pts_txt}  |  **School Percentile:** {pct_text}")
+    
+        fig_trend = build_trend_figure(row, subject)
+        ax = fig_trend.axes[0]
+        ax.set_xlabel("Grade Tested", labelpad=12)   # keep your label move
+        st.pyplot(fig_trend, use_container_width=True)   # ← replace use_container_width
+        plt.close(fig_trend)                               # ← important: close the figure
+        
+        st.markdown(level_key_inline(subject, tested), unsafe_allow_html=True)
+        
+        fig_growth = build_growth_figure(row, subject)
+        st.pyplot(fig_growth, use_container_width=True)    # ← replace use_container_width
+        plt.close(fig_growth)                              # ← important: close the figure
+    
+    
+        st.markdown("**What this means**")
+        st.write(what_this_means(lvl, subject, pct_text or "—"))
+        lines = year_by_year_lines(row, subject)
+        if lines:
+            st.markdown("**Year-by-Year Performance**")
+            st.markdown("\n".join([f"- {t}" for t in lines]))
+        st.divider()
