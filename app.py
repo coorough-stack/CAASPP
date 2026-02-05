@@ -1166,62 +1166,50 @@ def add_blank_pages(pdf, n: int = 2, dpi: int = 160):
         pdf.savefig(fig)
         plt.close(fig)
 
+def add_blank_pages(pdf, n: int = 2, dpi: int = 160):
+    """Append n completely blank letter-size pages to the PDF (duplex-safe spacing)."""
+    for _ in range(int(n)):
+        fig = plt.figure(figsize=(8.5, 11), dpi=dpi)
+        ax = fig.add_axes([0, 0, 1, 1])
+        ax.axis("off")
+        pdf.savefig(fig)
+        plt.close(fig)
+
 
 # ---------- Export: PDF (one page per student) ----------
 st.markdown("### Export")
 def build_pdf_bytes(rows: pd.DataFrame, subject: str, title: str) -> bytes:
     buf = io.BytesIO()
     with PdfPages(buf) as pdf:
-            last_section = object()  # sentinel that won't equal any real section
-            # last_section = None
-            for _, row in rows.iterrows():
-                # --- Duplex spacer between section groups (2 blank pages) ---
-                cur = row.get("_print_section", None)
-                cur_sec = None
-                try:
-                    if cur is not None and pd.notna(cur):
-                        cur_sec = int(cur)
-                except Exception:
-                    cur_sec = None
-    
-                # Add blank pages ONLY when both sections are valid numbers and the section changes
-                if isinstance(last_section, int) and isinstance(cur_sec, int) and cur_sec != last_section:
-                    add_blank_pages(pdf, n=2, dpi=160)
-    
-                # Update last_section (even if None) but DO NOT skip the student
-                last_section = cur_sec if isinstance(cur_sec, int) else last_section
-                
-                # Insert duplex-safe blank sheet between section groups (2 blank pages)
-                cur = row.get("_print_section", None)
-                try:
-                    cur_sec = int(cur) if pd.notna(cur) else None
-                except Exception:
-                    cur_sec = None
-    
-                if (
-                    last_section is not None
-                    and cur_sec is not None
-                    and cur_sec != last_section
-                    and last_section != 999999
-                    and cur_sec != 999999
-                ):
-                    add_blank_pages(pdf, n=2, dpi=160)
-    
-                last_section = cur_sec
-    
-                fig = plt.figure(figsize=(8.5, 11), dpi=160, constrained_layout=False)
+        last_sec = None
 
-            # 22 rows grid
+        for _, row in rows.iterrows():
+            # --- Duplex spacer between SECTION groups (2 blank pages) ---
+            cur = row.get("_print_section", None)
+            cur_sec = None
+            try:
+                if cur is not None and pd.notna(cur):
+                    cur_sec = int(cur)
+            except Exception:
+                cur_sec = None
+
+            if last_sec is not None and cur_sec is not None and cur_sec != last_sec:
+                add_blank_pages(pdf, n=2, dpi=160)
+
+            if cur_sec is not None:
+                last_sec = cur_sec
+
+            # --- Page 1: existing one-pager (UNCHANGED content) ---
+            fig = plt.figure(figsize=(8.5, 11), dpi=160, constrained_layout=False)
             gs = fig.add_gridspec(22, 6)
             fig.subplots_adjust(left=0.085, right=0.99, top=0.975, bottom=0.06, hspace=0.28)
 
-            ax_title = fig.add_subplot(gs[0:1, :])
-            ax_meta  = fig.add_subplot(gs[1:3, :])
-            ax_trend = fig.add_subplot(gs[3:13, :])
-            ax_key   = fig.add_subplot(gs[13:15, :])
-            ax_growth = fig.add_subplot(gs[15:17, :])  # shrink growth 1 row
-            ax_body   = fig.add_subplot(gs[17:, :])    # body gets more rows (fixes overlap)
-
+            ax_title  = fig.add_subplot(gs[0:1, :])
+            ax_meta   = fig.add_subplot(gs[1:3, :])
+            ax_trend  = fig.add_subplot(gs[3:13, :])
+            ax_key    = fig.add_subplot(gs[13:15, :])
+            ax_growth = fig.add_subplot(gs[15:17, :])
+            ax_body   = fig.add_subplot(gs[17:, :])
 
             name     = row.get(STUDENT_NAME_COL, "Student")
             latest   = row.get("LatestScore", np.nan)
@@ -1231,16 +1219,15 @@ def build_pdf_bytes(rows: pd.DataFrame, subject: str, title: str) -> bytes:
             cg       = row.get(CURRENT_GRADE_COL, "")
             tested   = int(row.get("LatestGradeTested", cg if pd.notna(cg) else 8) or 0)
 
-            # Title + name
             ax_title.text(0.0, 0.80, f"{title}", ha="left", va="center",
                           fontsize=18, weight="bold", transform=ax_title.transAxes)
             ax_title.text(0.0, 0.18, f"{name}", ha="left", va="center",
                           fontsize=16, weight="bold", transform=ax_title.transAxes)
             ax_title.axis("off")
 
-            # Meta row with pill + two lines
             lvl_text = f"Level {lvl} ({['','Not Met','Nearly Met','Met','Exceeded'][lvl] if lvl in [1,2,3,4] else '—'})"
             pill_color = ISR_COLORS.get(lvl, "#DDDDDD")
+
             ax_meta.text(
                 0.0, 0.94, lvl_text, transform=ax_meta.transAxes,
                 ha="left", va="center", fontsize=10.5,
@@ -1253,6 +1240,7 @@ def build_pdf_bytes(rows: pd.DataFrame, subject: str, title: str) -> bytes:
                 0.0, 0.62, f"Current Grade: {cg}  |  Latest Tested: Grade {tested}",
                 transform=ax_meta.transAxes, ha="left", va="center", fontsize=10
             )
+
             pts_txt = (
                 f"{int(pts_next)} pts to next level" if (pd.notna(pts_next) and lvl < 4)
                 else "at top level" if lvl == 4 else "—"
@@ -1263,41 +1251,36 @@ def build_pdf_bytes(rows: pd.DataFrame, subject: str, title: str) -> bytes:
                 f"Latest Score: {latest_score}  |  {pts_txt}  |  School Percentile: {pct_text}",
                 transform=ax_meta.transAxes, ha="left", va="center", fontsize=10
             )
-            ax_meta.axis('off')
+            ax_meta.axis("off")
 
-            # Trend chart (side padding)
             build_trend_figure(row, subject, ax=ax_trend)
             pt = ax_trend.get_position()
             pad_x = 0.012
             ax_trend.set_position([pt.x0 + pad_x, pt.y0, pt.width - 2*pad_x, pt.height])
             ax_trend.tick_params(axis="y", pad=2)
+            ax_trend.set_xlabel("Grade Tested", labelpad=2)
 
-            # ↓ Move the “Grade Tested” label DOWN (larger = farther below the axis)
-            ax_trend.set_xlabel("Grade Tested", labelpad=2)   # try 10–16 to taste
-
-            # Level key
             draw_level_key(ax_key, subject, tested if tested else (cg or 6))
             posk = ax_key.get_position()
             ax_key.set_position([posk.x0, posk.y0 - 0.020, posk.width, posk.height])
 
-            # Growth chart (side padding + slight up)
             build_growth_figure(row, subject, ax=ax_growth)
             pos = ax_growth.get_position()
-            bump_down = 0.015   # try 0.010–0.025
+            bump_down = 0.015
             ax_growth.set_position([pos.x0 + 0.012, pos.y0 - bump_down, pos.width - 2*0.012, pos.height])
 
-           # Body text (safe, line-by-line)
             blurb = what_this_means(level=lvl, subject=subject, percentile_text=pct_text or "—")
             yby   = year_by_year_lines(row, subject)
             draw_bottom_text(ax_body, blurb, yby, fontsize=11)
 
-
             pdf.savefig(fig)
             plt.close(fig)
 
-            # Page 2 (back side): reflection questions (PDF-only)
+            # --- Page 2: reflection page (existing) ---
             add_reflection_page(pdf, student_name=str(name), subject=subject, dpi=160)
+
     return buf.getvalue()
+
 
 def what_this_means(level: int, subject: str, percentile_text: str) -> str:
     if subject == "Math":
