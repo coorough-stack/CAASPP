@@ -1098,12 +1098,6 @@ if sort_choice == "Section > Student" and "SectionsList" in view.columns and "_s
         view = view.copy()
         view["_sort_section"] = view["SectionsList"].apply(_matched_section_key)
 
-# Preserve section key for PDF spacing (sort_df drops _sort_section)
-if sort_choice == "Section > Student" and "_sort_section" in view.columns:
-    view = view.copy()
-    view["_print_section"] = view["_sort_section"]
-
-
 view = sort_df(view, sort_choice)
 
 if pick_mode == "First N only":
@@ -1157,59 +1151,25 @@ def add_reflection_page(pdf, *, student_name: str, subject: str, dpi: int = 160)
     pdf.savefig(fig)
     plt.close(fig)
 
-def add_blank_pages(pdf, n: int = 2, dpi: int = 160):
-    """Append n completely blank letter-size pages to the PDF (useful for duplex spacing)."""
-    for _ in range(int(n)):
-        fig = plt.figure(figsize=(8.5, 11), dpi=dpi)
-        ax = fig.add_axes([0, 0, 1, 1])
-        ax.axis("off")
-        pdf.savefig(fig)
-        plt.close(fig)
-
-def add_blank_pages(pdf, n: int = 2, dpi: int = 160):
-    """Append n completely blank letter-size pages to the PDF (duplex-safe spacing)."""
-    for _ in range(int(n)):
-        fig = plt.figure(figsize=(8.5, 11), dpi=dpi)
-        ax = fig.add_axes([0, 0, 1, 1])
-        ax.axis("off")
-        pdf.savefig(fig)
-        plt.close(fig)
-
 
 # ---------- Export: PDF (one page per student) ----------
 st.markdown("### Export")
 def build_pdf_bytes(rows: pd.DataFrame, subject: str, title: str) -> bytes:
     buf = io.BytesIO()
     with PdfPages(buf) as pdf:
-        last_sec = None
-
         for _, row in rows.iterrows():
-            # --- Duplex spacer between SECTION groups (2 blank pages) ---
-            cur = row.get("_print_section", None)
-            cur_sec = None
-            try:
-                if cur is not None and pd.notna(cur):
-                    cur_sec = int(cur)
-            except Exception:
-                cur_sec = None
-
-            if last_sec is not None and cur_sec is not None and cur_sec != last_sec:
-                add_blank_pages(pdf, n=2, dpi=160)
-
-            if cur_sec is not None:
-                last_sec = cur_sec
-
-            # --- Page 1: existing one-pager (UNCHANGED content) ---
             fig = plt.figure(figsize=(8.5, 11), dpi=160, constrained_layout=False)
+            # 22 rows grid
             gs = fig.add_gridspec(22, 6)
             fig.subplots_adjust(left=0.085, right=0.99, top=0.975, bottom=0.06, hspace=0.28)
 
-            ax_title  = fig.add_subplot(gs[0:1, :])
-            ax_meta   = fig.add_subplot(gs[1:3, :])
-            ax_trend  = fig.add_subplot(gs[3:13, :])
-            ax_key    = fig.add_subplot(gs[13:15, :])
-            ax_growth = fig.add_subplot(gs[15:17, :])
-            ax_body   = fig.add_subplot(gs[17:, :])
+            ax_title = fig.add_subplot(gs[0:1, :])
+            ax_meta  = fig.add_subplot(gs[1:3, :])
+            ax_trend = fig.add_subplot(gs[3:13, :])
+            ax_key   = fig.add_subplot(gs[13:15, :])
+            ax_growth = fig.add_subplot(gs[15:17, :])  # shrink growth 1 row
+            ax_body   = fig.add_subplot(gs[17:, :])    # body gets more rows (fixes overlap)
+
 
             name     = row.get(STUDENT_NAME_COL, "Student")
             latest   = row.get("LatestScore", np.nan)
@@ -1219,15 +1179,16 @@ def build_pdf_bytes(rows: pd.DataFrame, subject: str, title: str) -> bytes:
             cg       = row.get(CURRENT_GRADE_COL, "")
             tested   = int(row.get("LatestGradeTested", cg if pd.notna(cg) else 8) or 0)
 
+            # Title + name
             ax_title.text(0.0, 0.80, f"{title}", ha="left", va="center",
                           fontsize=18, weight="bold", transform=ax_title.transAxes)
             ax_title.text(0.0, 0.18, f"{name}", ha="left", va="center",
                           fontsize=16, weight="bold", transform=ax_title.transAxes)
             ax_title.axis("off")
 
+            # Meta row with pill + two lines
             lvl_text = f"Level {lvl} ({['','Not Met','Nearly Met','Met','Exceeded'][lvl] if lvl in [1,2,3,4] else '—'})"
             pill_color = ISR_COLORS.get(lvl, "#DDDDDD")
-
             ax_meta.text(
                 0.0, 0.94, lvl_text, transform=ax_meta.transAxes,
                 ha="left", va="center", fontsize=10.5,
@@ -1240,7 +1201,6 @@ def build_pdf_bytes(rows: pd.DataFrame, subject: str, title: str) -> bytes:
                 0.0, 0.62, f"Current Grade: {cg}  |  Latest Tested: Grade {tested}",
                 transform=ax_meta.transAxes, ha="left", va="center", fontsize=10
             )
-
             pts_txt = (
                 f"{int(pts_next)} pts to next level" if (pd.notna(pts_next) and lvl < 4)
                 else "at top level" if lvl == 4 else "—"
@@ -1251,36 +1211,41 @@ def build_pdf_bytes(rows: pd.DataFrame, subject: str, title: str) -> bytes:
                 f"Latest Score: {latest_score}  |  {pts_txt}  |  School Percentile: {pct_text}",
                 transform=ax_meta.transAxes, ha="left", va="center", fontsize=10
             )
-            ax_meta.axis("off")
+            ax_meta.axis('off')
 
+            # Trend chart (side padding)
             build_trend_figure(row, subject, ax=ax_trend)
             pt = ax_trend.get_position()
             pad_x = 0.012
             ax_trend.set_position([pt.x0 + pad_x, pt.y0, pt.width - 2*pad_x, pt.height])
             ax_trend.tick_params(axis="y", pad=2)
-            ax_trend.set_xlabel("Grade Tested", labelpad=2)
 
+            # ↓ Move the “Grade Tested” label DOWN (larger = farther below the axis)
+            ax_trend.set_xlabel("Grade Tested", labelpad=2)   # try 10–16 to taste
+
+            # Level key
             draw_level_key(ax_key, subject, tested if tested else (cg or 6))
             posk = ax_key.get_position()
             ax_key.set_position([posk.x0, posk.y0 - 0.020, posk.width, posk.height])
 
+            # Growth chart (side padding + slight up)
             build_growth_figure(row, subject, ax=ax_growth)
             pos = ax_growth.get_position()
-            bump_down = 0.015
+            bump_down = 0.015   # try 0.010–0.025
             ax_growth.set_position([pos.x0 + 0.012, pos.y0 - bump_down, pos.width - 2*0.012, pos.height])
 
+           # Body text (safe, line-by-line)
             blurb = what_this_means(level=lvl, subject=subject, percentile_text=pct_text or "—")
             yby   = year_by_year_lines(row, subject)
             draw_bottom_text(ax_body, blurb, yby, fontsize=11)
 
+
             pdf.savefig(fig)
             plt.close(fig)
 
-            # --- Page 2: reflection page (existing) ---
+            # Page 2 (back side): reflection questions (PDF-only)
             add_reflection_page(pdf, student_name=str(name), subject=subject, dpi=160)
-
     return buf.getvalue()
-
 
 def what_this_means(level: int, subject: str, percentile_text: str) -> str:
     if subject == "Math":
@@ -1316,46 +1281,8 @@ def strip_html(s: str) -> str:
     return re.sub('<[^<]+?>', '', s)
 
 if st.button("Build PDF of current selection"):
-    pdf_rows = view.copy().reset_index(drop=True)
-
-    # If you’re sorting by Section, compute a stable print section key for spacing.
-    # IMPORTANT: this must NEVER filter out students.
-    if sort_choice == "Section > Student" and "SectionsList" in pdf_rows.columns:
-        if subject_sort_sections:
-            subj = set(str(s).strip() for s in subject_sort_sections)
-
-            def _subject_section_key(lst):
-                if not isinstance(lst, list):
-                    return None
-                nums = []
-                for x in lst:
-                    sx = str(x).strip()
-                    m = re.findall(r"\d+", sx)
-                    if m:
-                        code = str(int(m[0]))
-                        if code in subj:
-                            nums.append(int(code))
-                return min(nums) if nums else None
-
-            pdf_rows["_print_section"] = pdf_rows["SectionsList"].apply(_subject_section_key)
-        else:
-            # fallback: just take the smallest numeric section
-            def _min_section_any(lst):
-                if not isinstance(lst, list):
-                    return None
-                nums = []
-                for x in lst:
-                    m = re.findall(r"\d+", str(x))
-                    if m:
-                        nums.append(int(m[0]))
-                return min(nums) if nums else None
-
-            pdf_rows["_print_section"] = pdf_rows["SectionsList"].apply(_min_section_any)
-
-    st.info(f"Building PDF for {len(pdf_rows)} students…")  # debug/confirmation
-    pdf_bytes = build_pdf_bytes(pdf_rows, subject, f"{school_name} — {subject} CAASPP Test Scores")
+    pdf_bytes = build_pdf_bytes(view, subject, f"{school_name} — {subject} CAASPP Test Scores")
     st.download_button("Download PDF", data=pdf_bytes, file_name=f"{subject}_onepagers.pdf", mime="application/pdf")
-
 
 # ---------- Render in-app (matching screenshot structure) ----------
 for _, row in view.iterrows():
