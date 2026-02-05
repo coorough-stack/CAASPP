@@ -1172,8 +1172,25 @@ st.markdown("### Export")
 def build_pdf_bytes(rows: pd.DataFrame, subject: str, title: str) -> bytes:
     buf = io.BytesIO()
     with PdfPages(buf) as pdf:
-            last_section = None
+            last_section = object()  # sentinel that won't equal any real section
+            # last_section = None
             for _, row in rows.iterrows():
+                # --- Duplex spacer between section groups (2 blank pages) ---
+                cur = row.get("_print_section", None)
+                cur_sec = None
+                try:
+                    if cur is not None and pd.notna(cur):
+                        cur_sec = int(cur)
+                except Exception:
+                    cur_sec = None
+    
+                # Add blank pages ONLY when both sections are valid numbers and the section changes
+                if isinstance(last_section, int) and isinstance(cur_sec, int) and cur_sec != last_section:
+                    add_blank_pages(pdf, n=2, dpi=160)
+    
+                # Update last_section (even if None) but DO NOT skip the student
+                last_section = cur_sec if isinstance(cur_sec, int) else last_section
+                
                 # Insert duplex-safe blank sheet between section groups (2 blank pages)
                 cur = row.get("_print_section", None)
                 try:
@@ -1316,8 +1333,46 @@ def strip_html(s: str) -> str:
     return re.sub('<[^<]+?>', '', s)
 
 if st.button("Build PDF of current selection"):
-    pdf_bytes = build_pdf_bytes(view, subject, f"{school_name} — {subject} CAASPP Test Scores")
+    pdf_rows = view.copy().reset_index(drop=True)
+
+    # If you’re sorting by Section, compute a stable print section key for spacing.
+    # IMPORTANT: this must NEVER filter out students.
+    if sort_choice == "Section > Student" and "SectionsList" in pdf_rows.columns:
+        if subject_sort_sections:
+            subj = set(str(s).strip() for s in subject_sort_sections)
+
+            def _subject_section_key(lst):
+                if not isinstance(lst, list):
+                    return None
+                nums = []
+                for x in lst:
+                    sx = str(x).strip()
+                    m = re.findall(r"\d+", sx)
+                    if m:
+                        code = str(int(m[0]))
+                        if code in subj:
+                            nums.append(int(code))
+                return min(nums) if nums else None
+
+            pdf_rows["_print_section"] = pdf_rows["SectionsList"].apply(_subject_section_key)
+        else:
+            # fallback: just take the smallest numeric section
+            def _min_section_any(lst):
+                if not isinstance(lst, list):
+                    return None
+                nums = []
+                for x in lst:
+                    m = re.findall(r"\d+", str(x))
+                    if m:
+                        nums.append(int(m[0]))
+                return min(nums) if nums else None
+
+            pdf_rows["_print_section"] = pdf_rows["SectionsList"].apply(_min_section_any)
+
+    st.info(f"Building PDF for {len(pdf_rows)} students…")  # debug/confirmation
+    pdf_bytes = build_pdf_bytes(pdf_rows, subject, f"{school_name} — {subject} CAASPP Test Scores")
     st.download_button("Download PDF", data=pdf_bytes, file_name=f"{subject}_onepagers.pdf", mime="application/pdf")
+
 
 # ---------- Render in-app (matching screenshot structure) ----------
 for _, row in view.iterrows():
