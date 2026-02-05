@@ -1192,7 +1192,7 @@ def build_pdf_bytes(rows: pd.DataFrame, subject: str, title: str) -> bytes:
     
                 last_section = cur_sec
     
-                fig = plt.figure(...)
+                fig = plt.figure(figsize=(8.5, 11), dpi=160, constrained_layout=False)
 
             # 22 rows grid
             gs = fig.add_gridspec(22, 6)
