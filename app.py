@@ -1098,6 +1098,12 @@ if sort_choice == "Section > Student" and "SectionsList" in view.columns and "_s
         view = view.copy()
         view["_sort_section"] = view["SectionsList"].apply(_matched_section_key)
 
+# Preserve section key for PDF spacing (sort_df drops _sort_section)
+if sort_choice == "Section > Student" and "_sort_section" in view.columns:
+    view = view.copy()
+    view["_print_section"] = view["_sort_section"]
+
+
 view = sort_df(view, sort_choice)
 
 if pick_mode == "First N only":
@@ -1151,14 +1157,43 @@ def add_reflection_page(pdf, *, student_name: str, subject: str, dpi: int = 160)
     pdf.savefig(fig)
     plt.close(fig)
 
+def add_blank_pages(pdf, n: int = 2, dpi: int = 160):
+    """Append n completely blank letter-size pages to the PDF (useful for duplex spacing)."""
+    for _ in range(int(n)):
+        fig = plt.figure(figsize=(8.5, 11), dpi=dpi)
+        ax = fig.add_axes([0, 0, 1, 1])
+        ax.axis("off")
+        pdf.savefig(fig)
+        plt.close(fig)
+
 
 # ---------- Export: PDF (one page per student) ----------
 st.markdown("### Export")
 def build_pdf_bytes(rows: pd.DataFrame, subject: str, title: str) -> bytes:
     buf = io.BytesIO()
     with PdfPages(buf) as pdf:
-        for _, row in rows.iterrows():
-            fig = plt.figure(figsize=(8.5, 11), dpi=160, constrained_layout=False)
+            last_section = None
+            for _, row in rows.iterrows():
+                # Insert duplex-safe blank sheet between section groups (2 blank pages)
+                cur = row.get("_print_section", None)
+                try:
+                    cur_sec = int(cur) if pd.notna(cur) else None
+                except Exception:
+                    cur_sec = None
+    
+                if (
+                    last_section is not None
+                    and cur_sec is not None
+                    and cur_sec != last_section
+                    and last_section != 999999
+                    and cur_sec != 999999
+                ):
+                    add_blank_pages(pdf, n=2, dpi=160)
+    
+                last_section = cur_sec
+    
+                fig = plt.figure(...)
+
             # 22 rows grid
             gs = fig.add_gridspec(22, 6)
             fig.subplots_adjust(left=0.085, right=0.99, top=0.975, bottom=0.06, hspace=0.28)
