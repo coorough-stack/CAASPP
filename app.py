@@ -269,25 +269,25 @@ def apply_section_filter(_df: pd.DataFrame, selected_sections: list) -> pd.DataF
     return out
 
 
-sel = set(str(s).strip() for s in selected_sections)
+    sel = set(str(s).strip() for s in selected_sections)
 
-def _sections_iter(v):
-    # Expected case: list of section codes
-    if isinstance(v, list):
-        return [str(x).strip() for x in v]
-    # Missing sections
-    if pd.isna(v):
+    def _sections_iter(v):
+        # Expected case: list of section codes
+        if isinstance(v, list):
+            return [str(x).strip() for x in v]
+        # Missing sections
+        if pd.isna(v):
+            return []
+        # Sometimes comes through as a string (e.g. "174, 283" or "['174','283']")
+        if isinstance(v, str):
+            import re
+            return re.findall(r"\d+", v)
+        # Anything else: treat as no sections
         return []
-    # Sometimes comes through as a string (e.g. "174, 283" or "['174','283']")
-    if isinstance(v, str):
-        import re
-        return re.findall(r"\d+", v)
-    # Anything else: treat as no sections
-    return []
-
-mask = _df["SectionsList"].apply(
-    lambda v: bool(set(_sections_iter(v)).intersection(sel))
-)
+    
+    mask = _df["SectionsList"].apply(
+        lambda v: bool(set(_sections_iter(v)).intersection(sel))
+    )
 
     out = _df.loc[mask].copy()
 
